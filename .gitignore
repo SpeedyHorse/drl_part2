@@ -177,3 +177,6 @@ raw*
 dataset
 test*.*
 **/*.csv
+
+data_*
+*.zip

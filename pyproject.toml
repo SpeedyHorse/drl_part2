@@ -3,17 +3,16 @@ name = "drl"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "dask[dataframe]>=2024.8.0",
-    "flow-package",
+    "imbalanced-learn>=0.13.0",
     "ipykernel>=6.29.5",
-    "matplotlib>=3.9.4",
-    "pytorch-msssim>=1.0.0",
+    "matplotlib>=3.10.3",
+    "numpy>=2.2.6",
+    "pandas>=2.3.0",
+    "scikit-learn>=1.6.1",
     "seaborn>=0.13.2",
-    "stable-baselines3>=2.6.0",
-    "torch>=2.6.0",
-    "torchrl>=0.7.2",
+    "torch>=2.7.1",
     "tqdm>=4.67.1",
 ]
 
