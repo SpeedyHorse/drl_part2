@@ -1,0 +1,16 @@
+services:
+  python:
+    build: ./docker
+    container_name: python
+    ports:
+      - 8888:8888
+    volumes:
+      - .:/app
+      # - ./drl:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0", "1", "2", "3"]
+              capabilities: [gpu]
