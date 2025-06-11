@@ -1,5 +1,5 @@
 import pandas as pd
-from imblearn.under_sampling import EditedNearestNeighbours
+from imblearn.under_sampling import NearMiss
 from imblearn.combine import SMOTEENN
 from imblearn.over_sampling import SMOTE
 from collections import Counter
@@ -49,6 +49,7 @@ def sampling(df):
     # undersampling ... more than thrid
     # 各ラベルの出現回数を計算
     label_counts = df["Label"].value_counts()
+    print(label_counts)
 
     # 100,000より多いラベルと少ないラベルに分類
     more_than_100k_labels = label_counts[label_counts > 100_000].index
@@ -58,16 +59,20 @@ def sampling(df):
     under_df = df[df["Label"].isin(more_than_100k_labels)]
     other_df = df[df["Label"].isin(less_than_100k_labels)]
 
-    enn = EditedNearestNeighbours(
-        n_jobs=-1,
-        kind_sel="all",
-        n_neighbors=2,
+    nm = NearMiss(
+        n_neighbors_ver3=2,
         version=3,
+        n_jobs=-1,
+        sampling_strategy={
+            k: 100_000 for k in more_than_100k_labels
+        }
     )
-    under_x, under_y = enn.fit_resample(under_df.drop(columns=["Label"]), under_df["Label"])
+    print("undersampling start...")
+    under_x, under_y = nm.fit_resample(under_df.drop(columns=["Label"]), under_df["Label"])
     under_res = pd.concat([under_x, under_y], axis=1)
 
     df = pd.concat([under_res, other_df], axis=0)
+    print("undersampling end...")
 
     # oversampling ... less than third
     smote_enn = SMOTEENN(
@@ -78,8 +83,10 @@ def sampling(df):
             random_state=42,
         )
     )
+    print("oversampling start...")
     over_x, over_y = smote_enn.fit_resample(df.drop(columns=["Label"]), df["Label"])
     over_res = pd.concat([over_x, over_y], axis=1)
+    print("oversampling end...")
 
     return over_res
 
