@@ -101,6 +101,7 @@ for file_path in tqdm(files_path):
     df_tmp = df_tmp.replace([np.inf, -np.inf], np.nan)
     df_tmp = df_tmp.dropna()
     df = pd.concat([df, df_tmp], axis=0)
+    break
 
 df = df.drop(columns=["Attempted Category"])
 
