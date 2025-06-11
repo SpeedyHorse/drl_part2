@@ -47,8 +47,17 @@ def process_data(df, is_drop=True):
 
 def sampling(df):
     # undersampling ... more than thrid
-    under_df = df[df["Label"].value_counts() > 100_000]
-    other_df = df[df["Label"].value_counts() <= 100_000]
+    # 各ラベルの出現回数を計算
+    label_counts = df["Label"].value_counts()
+
+    # 100,000より多いラベルと少ないラベルに分類
+    more_than_100k_labels = label_counts[label_counts > 100_000].index
+    less_than_100k_labels = label_counts[label_counts <= 100_000].index
+
+    # データを分類
+    under_df = df[df["Label"].isin(more_than_100k_labels)]
+    other_df = df[df["Label"].isin(less_than_100k_labels)]
+
     enn = EditedNearestNeighbours(
         n_jobs=-1,
         kind_sel="all",
