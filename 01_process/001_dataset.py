@@ -1,4 +1,5 @@
 import pandas as pd
+from imblearn.under_sampling import EditedNearestNeighbours
 from imblearn.combine import SMOTEENN
 from imblearn.over_sampling import SMOTE
 from collections import Counter
@@ -43,7 +44,37 @@ def process_data(df, is_drop=True):
             "destination_ip": "Dst IP"
         })
     return df
-    
+
+def sampling(df):
+    # undersampling ... more than thrid
+    under_df = df[df["Label"].value_counts() > 100_000]
+    other_df = df[df["Label"].value_counts() <= 100_000]
+    enn = EditedNearestNeighbours(
+        n_jobs=-1,
+        kind_sel="all",
+        n_neighbors=2,
+        version=3,
+    )
+    under_x, under_y = enn.fit_resample(under_df.drop(columns=["Label"]), under_df["Label"])
+    under_res = pd.concat([under_x, under_y], axis=1)
+
+    df = pd.concat([under_res, other_df], axis=0)
+
+    # oversampling ... less than third
+    smote_enn = SMOTEENN(
+        random_state=42,
+        n_jobs=-1,
+        smote=SMOTE(
+            k_neighbors=2,
+            random_state=42,
+        )
+    )
+    over_x, over_y = smote_enn.fit_resample(df.drop(columns=["Label"]), df["Label"])
+    over_res = pd.concat([over_x, over_y], axis=1)
+
+    return over_res
+
+
 directory_path = "data_cicids2017/0_raw"
 
 df = pd.DataFrame()
@@ -55,22 +86,11 @@ for file_path in tqdm(files_path):
     df_tmp = df_tmp.dropna()
     df = pd.concat([df, df_tmp], axis=0)
 
-X = df.drop(columns=["Label", "Attempted Category"])
-y = df["Label"]
+df = df.drop(columns=["Attempted Category"])
 
-smote_enn = SMOTEENN(
-    random_state=42,
-    n_jobs=-1,
-    smote=SMOTE(
-        k_neighbors=2,
-        random_state=42,
-    )
-)
-X_res, y_res = smote_enn.fit_resample(X, y)
+df = sampling(df)
 
-print("After: ", Counter(y_res))
-
-df = pd.concat([X_res, y_res], axis=1)
+print("After: ", Counter(df["Label"]))
 
 length = len(df)
 
