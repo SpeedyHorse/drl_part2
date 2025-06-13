@@ -1,11 +1,12 @@
 import pandas as pd
-from imblearn.under_sampling import NearMiss
+from imblearn.under_sampling import CondensedNearestNeighbour
 from imblearn.combine import SMOTEENN
 from imblearn.over_sampling import SMOTE
 from collections import Counter
 from glob import glob
 from tqdm import tqdm
 import numpy as np
+import datetime
 
 def process_data(df, is_drop=True):
     df = df.drop(columns=[
@@ -59,16 +60,13 @@ def sampling(df):
     under_df = df[df["Label"].isin(more_than_100k_labels)]
     other_df = df[df["Label"].isin(less_than_100k_labels)]
 
-    nm = NearMiss(
-        n_neighbors_ver3=2,
-        version=3,
-        n_jobs=-1,
-        sampling_strategy={
-            k: 100_000 for k in more_than_100k_labels
-        }
+    cnn = CondensedNearestNeighbour(
+        random_state=42,
+        n_neighbors=2,
+        n_jobs=-1
     )
     print("undersampling start...")
-    under_x, under_y = nm.fit_resample(under_df.drop(columns=["Label"]), under_df["Label"])
+    under_x, under_y = cnn.fit_resample(under_df.drop(columns=["Label"]), under_df["Label"])
     under_res = pd.concat([under_x, under_y], axis=1)
 
     df = pd.concat([under_res, other_df], axis=0)
@@ -88,6 +86,18 @@ def sampling(df):
     over_res = pd.concat([over_x, over_y], axis=1)
     print("oversampling end...")
 
+    with open("sampling_result.txt", "w") as f:
+        f.write(f"sampling: {datetime.datetime.now()}\n")
+        f.write("="*100 + "\n")
+        f.write(f"undersampling\n")
+        for label, count in under_res["Label"].value_counts().items():
+            f.write(f"{label}: {count}\n")
+        f.write("="*100 + "\n")
+        f.write(f"oversampling\n")
+        for label, count in over_res["Label"].value_counts().items():
+            f.write(f"{label}: {count}\n")
+        f.write("="*100 + "\n")
+
     return over_res
 
 
@@ -95,13 +105,14 @@ directory_path = "data_cicids2017/0_raw"
 
 df = pd.DataFrame()
 files_path = glob(f"{directory_path}/*.csv")
+
 for file_path in tqdm(files_path):
     df_tmp = pd.read_csv(file_path)
     df_tmp = process_data(df_tmp)
     df_tmp = df_tmp.replace([np.inf, -np.inf], np.nan)
     df_tmp = df_tmp.dropna()
     df = pd.concat([df, df_tmp], axis=0)
-    break
+    # break
 
 df = df.drop(columns=["Attempted Category"])
 
@@ -124,5 +135,5 @@ while i < length:
         df_temp = df.iloc[i:i + ROW_COUNTER]
         print(f"{i:10d} - {i + ROW_COUNTER:10d}")
 
-    df_temp.to_csv(f"data_cicids2017/1_sampling/{counter:03d}_cicids2017.csv", index=False)
+    # df_temp.to_csv(f"data_cicids2017/1_sampling/{counter:03d}_cicids2017.csv", index=False)
     i += ROW_COUNTER
