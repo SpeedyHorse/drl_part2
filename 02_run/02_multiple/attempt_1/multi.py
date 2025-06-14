@@ -1,4 +1,4 @@
-from flow_package.multi_flow_env import MultipleFlowEnv, InputType
+from flow_package.multi_flow_env import MultiFlowEnv, InputType
 import flow_package as f_p
 import numpy as np
 import os
@@ -22,6 +22,9 @@ import torch.optim as optim
 from tqdm import tqdm
 
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
 CONST = f_p.Const()
 
 TRAIN_DIR = os.path.abspath("data_cicids2017/1_sampling")
@@ -29,13 +32,13 @@ paths = glob(os.path.join(TRAIN_DIR, "cicids2017_sampled.csv"))
 
 df = pd.DataFrame()
 for path in tqdm(paths):
-
     df = pd.concat([df, pd.read_csv(path, dtype=CONST.dtypes)])
 
 df = df.dropna(how="any").dropna(axis=1, how="any")
+df = df[df["Attempted Category"] == -1]
 
-del df
-gc.collect()
+labels = df["Label"].value_counts().index.tolist()
+df["Label"] = df["Label"].map(lambda x: labels.index(x))
 
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 
@@ -45,7 +48,7 @@ train_input = InputType(
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
-train_env = MultipleFlowEnv(train_input)
+train_env = MultiFlowEnv(train_input)
 
 test_input = InputType(
     data=test_df,
@@ -54,7 +57,7 @@ test_input = InputType(
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
-test_env = MultipleFlowEnv(test_input)
+test_env = MultiFlowEnv(test_input)
 
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
@@ -63,7 +66,7 @@ if is_ipython:
 device_name = "cpu"
 if True:
     if torch.cuda.is_available():
-        device_name = "cuda"
+        device_name = "cuda:1"
     elif torch.mps.is_available():
         device_name = "mps"
     elif torch.mtia.is_available():
@@ -96,68 +99,66 @@ def moving_average(data, window_size):
     return np.convolve(data, weights, mode='valid')
 
 
-def plot_graph(data: list, show_result=False):
-    plt.figure(figsize=(15, 5))
-    if show_result:
-        plt.title("Result")
-    else:
-        plt.clf()
-        plt.title("Training...")
+def _plot_common_figure(fig=None, is_save=False, save_name=None, show_result=False):
+    """
+    グラフの共通処理（保存・表示・クリア）
+    """
+    if is_save and save_name:
+        plt.savefig(save_name)
+        plt.close()
+        return
+    plt.pause(0.001)
+    if 'is_ipython' in globals() and is_ipython:
+        if not show_result:
+            display.display(plt.gcf() if fig is None else fig)
+            display.clear_output(wait=True)
+        else:
+            display.display(plt.gcf() if fig is None else fig)
 
+
+def plot_graph(data: list, show_result=False, is_save=False):
+    """
+    エピソードごとの比率推移グラフ
+    """
+    plt.figure(figsize=(15, 5))
+    plt.title("Result" if show_result else "Training...")
     means = moving_average(data, 200)
     lines = np.full(len(means), 1 / 15)
-
     first = len(data) - len(means)
     if first < 0:
         first = 0
     else:
         means = np.concatenate((np.full(first, np.nan), means))
         lines = np.concatenate((np.full(first, np.nan), lines))
-
     plt.plot(lines, color="blue", linestyle="--")
     plt.xlabel("Episode")
     plt.ylabel("ratio")
     plt.plot(means, color="red")
     plt.grid()
-    plt.pause(0.001)
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    _plot_common_figure(is_save=is_save, save_name="graph.png", show_result=show_result)
 
 
-def plot_normal_graph(data: list, show_result=False):
+def plot_normal_graph(data: list, show_result=False, is_save=False):
+    """
+    ステップごとの損失推移グラフ
+    """
     plt.figure(figsize=(15, 5))
-    if show_result:
-        plt.title("Result")
-    else:
-        plt.clf()
-        plt.title("Training...")
-
+    plt.title("Result" if show_result else "Training...")
     means = moving_average(data, 200)
     plt.xlabel("Step")
     plt.ylabel("Loss")
     plt.plot(means, color="red")
     plt.grid()
-    plt.pause(0.001)
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    _plot_common_figure(is_save=is_save, save_name="normal_graph.png", show_result=show_result)
 
 
-def plot_double_graph(data1: list, data2: list, show_result=False):
+def plot_double_graph(data1: list, data2: list, show_result=False, is_save=False):
+    """
+    2つのグラフ（比率・損失）を並列表示
+    """
     fig = plt.figure(figsize=(15, 5))
     ax1 = fig.add_subplot(1, 2, 1)
-    if show_result:
-        ax1.set_title("Result")
-    else:
-        ax1.cla()
-        ax1.set_title("Training...")
+    ax1.set_title("Result" if show_result else "Training...")
     means_ax1 = moving_average(data1, 200)
     lines_ax1 = np.full(len(means_ax1), 1 / 15)
     first_ax1 = len(data1) - len(means_ax1)
@@ -171,11 +172,7 @@ def plot_double_graph(data1: list, data2: list, show_result=False):
     ax1.set_ylabel("ratio")
     ax1.plot(means_ax1, color="red")
     ax2 = fig.add_subplot(1, 2, 2)
-    if show_result:
-        ax2.set_title("Result")
-    else:
-        ax2.cla()
-        ax2.set_title("Training...")
+    ax2.set_title("Result" if show_result else "Training...")
     means_ax2 = moving_average(data2, 200)
     first_ax2 = len(data2) - len(means_ax2)
     if first_ax2 < 0:
@@ -186,45 +183,24 @@ def plot_double_graph(data1: list, data2: list, show_result=False):
     ax2.set_ylabel("Loss")
     ax2.plot(means_ax2, color="red")
     fig.tight_layout()
-    plt.pause(0.001)
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    _plot_common_figure(fig=fig, is_save=is_save, save_name="double_graph.png", show_result=show_result)
 
 
-def plot_metrics(metrics_dict: dict, show_result=False):
+def plot_metrics(metrics_dict: dict, show_result=False, is_save=False):
+    """
+    複数の評価指標（accuracy, precision, recall, f1, fpr）をまとめて表示
+    """
     fig = plt.figure(figsize=(16, 20))
-    ac = fig.add_subplot(5, 1, 1)
-    ac.plot(metrics_dict["accuracy"], label="accuracy")
-    ac.grid()
-    ac.set_title("Accuracy")
-    pr = fig.add_subplot(5, 1, 2)
-    pr.plot(metrics_dict["precision"], label="precision", color="green")
-    pr.grid()
-    pr.set_title("Precision")
-    re = fig.add_subplot(5, 1, 3)
-    re.plot(metrics_dict["recall"], label="recall", color="red")
-    re.grid()
-    re.set_title("Recall")
-    f1 = fig.add_subplot(5, 1, 4)
-    f1.plot(metrics_dict["f1"], label="f1", color="black")
-    f1.grid()
-    f1.set_title("F1")
-    fpr = fig.add_subplot(5, 1, 5)
-    fpr.plot(metrics_dict["fpr"], label="fpr", color="purple")
-    fpr.grid()
-    fpr.set_title("FPR")
+    titles = ["Accuracy", "Precision", "Recall", "F1", "FPR"]
+    colors = ["blue", "green", "red", "black", "purple"]
+    keys = ["accuracy", "precision", "recall", "f1", "fpr"]
+    for i, (title, color, key) in enumerate(zip(titles, colors, keys)):
+        ax = fig.add_subplot(5, 1, i+1)
+        ax.plot(metrics_dict[key], label=key, color=color)
+        ax.grid()
+        ax.set_title(title)
     plt.tight_layout()
-    plt.pause(0.001)
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    _plot_common_figure(fig=fig, is_save=is_save, save_name="metrics.png", show_result=show_result)
 
 
 def calculate_metrics(tp, tn, fp, fn):
@@ -238,6 +214,45 @@ def calculate_metrics(tp, tn, fp, fn):
     if recall < 0:
         recall = None
     return accuracy, precision, recall, f1, fpr
+
+
+def plot_confusion_matrix(confusion_array, class_names=None, show_result=False, is_save=False, name="confusion_matrix"):
+    """
+    混同行列のヒートマップ表示（グリッドをマス目に合わせ、割合を小数で表示、%記号なし）
+    """
+    plt.figure(figsize=(10, 8))
+    plt.title("Result" if show_result else "Testing...")
+    if class_names is None:
+        class_names = [f'Class {i}' for i in range(len(confusion_array))]
+    conf_matrix = confusion_array.copy().astype(float)
+    for column in range(n_actions):
+        sum_column = conf_matrix[:, column].sum()
+        if sum_column == 0:
+            continue
+        conf_matrix[:, column] /= sum_column
+    # ヒートマップ本体
+    ax = sns.heatmap(
+        conf_matrix,
+        annot=True,
+        cmap='Blues',
+        fmt=".2f",  # 小数点2桁、%記号なし
+        xticklabels=class_names,
+        yticklabels=class_names,
+        linewidths=1,  # マス目の線を太く
+        linecolor='black',
+        cbar=True
+    )
+    plt.ylabel('Predicted')
+    plt.xlabel('Actual')
+    plt.xticks(rotation=45)
+    plt.yticks(rotation=45)
+    plt.tight_layout()
+    # グリッド線をマス目に合わせて明示的に描画
+    ax.set_xticks([x+0.5 for x in range(len(class_names))], minor=True)
+    ax.set_yticks([y+0.5 for y in range(len(class_names))], minor=True)
+    ax.grid(which="minor", color="black", linestyle='-', linewidth=1)
+    plt.grid(False)  # デフォルトのグリッドは消す
+    _plot_common_figure(is_save=is_save, save_name=f"{name}.png", show_result=show_result)
 
 
 PORT_DIM = 32
@@ -270,30 +285,20 @@ EPS_END = 0.05
 EPS_DECAY = 100000
 TAU = 0.005
 LR = 1e-4
-REWARD_MATRIX = np.array([
-    [1., -2., -2., -2., -2., -2., -2., -2., -2., -2., -2., -2., -2., -2., -2.],
-    [-2., 1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., 1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., 1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., 1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., 1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., 1., -1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., 1., -1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., 1., -1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., 1., -1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., -1., 1., -1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 1., -1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 1., -1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 1., -1.],
-    [-2., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 1.]
-])
 
 def get_reward(action, answer):
-    return REWARD_MATRIX[action, answer]
+    if action == answer:
+        return 1
+    elif action == 0 or answer == 0:
+        return -2
+    else:
+        return -1
 
 num_episodes = 100
 n_actions = train_env.action_space.n
 n_inputs = train_env.observation_space.shape[0]
+
+print(n_actions)
 
 state = train_env.reset()
 
@@ -356,11 +361,61 @@ def optimize_model():
     optimizer.step()
     return loss.item()
 
+MODEL_PATH = "multi_01.pth"
+def test_model():
+    trained_network = DeepFlowNetwork(n_inputs=n_inputs, n_outputs=n_actions).to(device)
+    trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
+    trained_network.eval()
+    confusion_array = np.zeros((n_actions, n_actions), dtype=np.int32)
+    for i_loop in range(1):
+        random.seed(i_loop)
+        test_raw_state = test_env.reset()
+        try:
+            test_state = f_p.to_tensor(test_raw_state, device=device)
+        except Exception:
+            raise print(test_raw_state)
+        for t in count():
+            with torch.no_grad():
+                test_action = trained_network(test_state).max(1).indices.view(1, 1)
+            test_raw_next_state, test_reward, test_terminated, test_truncated, test_info = test_env.step(test_action.item())
+            action = test_info["action"]
+            answer = test_info["answer"]
+            confusion_array[action, answer] += 1
+            if test_terminated:
+                break
+            test_state = f_p.to_tensor(test_raw_next_state, device=device)
+            if t % 100000 == 0:
+                plot_confusion_matrix(confusion_array, is_save=True)
+    for i in range(n_actions):
+        print("[", end="")
+        for j in range(n_actions):
+            if j == n_actions - 1:
+                print(confusion_array[i, j], end="")
+            else:
+                print(confusion_array[i, j], end=", ")
+        print("],")
+    with open("test.csv", "w") as f:
+        # write header
+        f.write("row,")
+        for i in range(n_actions):
+            f.write(f"{i},")
+        else:
+            f.write("\n")
+        # write data
+        for i in range(n_actions):
+            f.write(f"{i},") # write row index
+            for j in range(n_actions):
+                f.write(f"{confusion_array[i, j]},")
+            f.write("\n")
+
+    plot_confusion_matrix(confusion_array, show_result=True, is_save=True, name="test_confusion_matrix")
+
+
 for i_episode in range(num_episodes):
     test = []
     random.seed(i_episode)
     sum_reward = 0
-    confusion_matrix = np.zeros((2, 2), dtype=int)
+    confusion_matrix = np.zeros((n_actions, n_actions), dtype=int)
     initial_state = train_env.reset()
     state = f_p.to_tensor(initial_state, device=device)
     show = np.zeros(n_actions, dtype=int)
@@ -368,6 +423,7 @@ for i_episode in range(num_episodes):
         action = select_action(state)
         raw_next_state, reward, terminated, truncated, info = train_env.step(action.item())
         row_column_index = info["matrix_position"]
+        # print(row_column_index)
         confusion_matrix[row_column_index[0], row_column_index[1]] += 1
         test.append(info["answer"])
         show[action.item()] += 1
@@ -392,92 +448,15 @@ for i_episode in range(num_episodes):
         confusion_matrix[1, 1] / base if base != 0 else 0
     )
     if i_episode > 0 and i_episode % 5 == 0:
-        plot_double_graph(episode_rewards, np.array(loss_array))
+        plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
+        torch.save(policy_net.state_dict(), MODEL_PATH)
+        plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
+        test_model()
 
-plot_graph(episode_precision, show_result=True)
-plot_normal_graph(loss_array, show_result=True)
-torch.save(policy_net.state_dict(), "re_01_dqn_cic.pth")
+plot_graph(episode_precision, show_result=True, is_save=True)
+plot_normal_graph(loss_array, show_result=True, is_save=True)
+
+
 train_env.close()
-torch.save(policy_net.state_dict(), "re_01_dqn_cic.pth")
 
-def plot_confusion_matrix(confusion_array, class_names=None, show_result=False):
-    plt.figure(figsize=(10, 8))
-    if show_result:
-        plt.title("Result")
-    else:
-        plt.clf()
-        plt.title(f"Testing...")
-    if class_names is None:
-        class_names = [f'Class {i}' for i in range(len(confusion_array))]
-    conf_matrix = confusion_array.copy().astype(float)
-    for column in range(n_actions):
-        sum_column = 0
-        for row in range(n_actions):
-            sum_column += conf_matrix[row][column]
-        if sum_column == 0:
-            continue
-        for row in range(n_actions):
-            conf_matrix[row][column] /= sum_column
-    sns.heatmap(
-        conf_matrix,
-        annot=True,
-        cmap='Blues',
-        fmt=".0%",
-        xticklabels=class_names,
-        yticklabels=class_names,
-    )
-    plt.ylabel('Predicted')
-    plt.xlabel('Actual')
-    plt.xticks(rotation=45)
-    plt.yticks(rotation=45)
-    plt.tight_layout()
-    plt.grid()
-    plt.pause(0.1)
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
 
-MODEL_PATH = "re_01_dqn_cic.pth"
-trained_network = DeepFlowNetwork(n_inputs=n_inputs, n_outputs=n_actions).to(device)
-trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
-trained_network.eval()
-counts = test_df["Label"].value_counts()
-confusion_array = np.zeros((n_actions, n_actions), dtype=np.int32)
-metrics_dictionary = {
-    "accuracy": [],
-    "precision": [],
-    "recall": [],
-    "f1": [],
-    "fpr": []
-}
-for i_loop in range(1):
-    random.seed(i_loop)
-    test_raw_state = test_env.reset()
-    try:
-        test_state = f_p.to_tensor(test_raw_state, device=device)
-    except Exception:
-        raise print(test_raw_state)
-    for t in count():
-        with torch.no_grad():
-            test_action = trained_network(test_state).max(1).indices.view(1, 1)
-        test_raw_next_state, test_reward, test_terminated, test_truncated, test_info = test_env.step(test_action.item())
-        action = test_info["action"]
-        answer = test_info["answer"]
-        confusion_array[action, answer] += 1
-        if test_terminated:
-            break
-        test_state = f_p.to_tensor(test_raw_next_state, device=device)
-        if t % 100000 == 0:
-            plot_confusion_matrix(confusion_array)
-for i in range(n_actions):
-    print("[", end="")
-    for j in range(n_actions):
-        if j == n_actions - 1:
-            print(confusion_array[i, j], end="")
-        else:
-            print(confusion_array[i, j], end=", ")
-    print("],")
-plot_confusion_matrix(confusion_array, show_result=True)
