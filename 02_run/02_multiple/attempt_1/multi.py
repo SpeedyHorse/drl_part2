@@ -32,58 +32,27 @@ for path in tqdm(paths):
 
     df = pd.concat([df, pd.read_csv(path, dtype=CONST.dtypes)])
 
-print(df.columns)
-exit()
-
 df = df.dropna(how="any").dropna(axis=1, how="any")
-df = df.drop(columns=["Unnamed: 0"]).drop_duplicates()
-
-test_data = df[df["Number Label"] != 0]
-
-# TRAIN = "../../hybrid_sample.csv"
-# path = os.path.abspath(TRAIN)
-# train_data = pd.read_csv(path).drop(columns=["Unnamed: 0"]).drop_duplicates()
 
 del df
 gc.collect()
 
-print(train_data["Number Label"].value_counts())
+train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 
-smote = SMOTENC(
-    categorical_features=["Protocol", "Destination Port"],
-    random_state=42,
-    sampling_strategy="auto",
-    k_neighbors=3
+train_input = InputType(
+    data=train_df,
+    sample_size=5000,
+    normalize_exclude_columns=["Protocol", "Destination Port"],
+    exclude_columns=["Attempted Category"]
 )
-x_smote, y_smote = smote.fit_resample(
-    train_data.drop(columns=["Number Label"]), train_data["Number Label"]
-)
-train_data = pd.concat([x_smote, y_smote], axis=1)
-print(train_data["Number Label"].value_counts())
-
-if False:
-    train_data = previous_data[previous_data["Number Label"] == 0]
-    train_input = InputType(
-        input_features=train_data.drop(columns=["Number Label"]),
-        input_labels=train_data["Number Label"],
-        reward_list=[1.0, -1.0],
-        type_env="train"
-    )
-else:
-    previous_data = train_data
-    train_input = InputType(
-        input_features=train_data.drop(columns=["Number Label"]),
-        input_labels=train_data["Number Label"],
-        reward_list=[1.0, -1.0],
-        type_env=None
-    )
 train_env = MultipleFlowEnv(train_input)
 
 test_input = InputType(
-    input_features=test_data.drop(columns=["Number Label"]),
-    input_labels=test_data["Number Label"],
-    reward_list=[1.0, -1.0],
-    type_env="test"
+    data=test_df,
+    sample_size=5000,
+    is_test=True,
+    normalize_exclude_columns=["Protocol", "Destination Port"],
+    exclude_columns=["Attempted Category"]
 )
 test_env = MultipleFlowEnv(test_input)
 
@@ -475,7 +444,7 @@ MODEL_PATH = "re_01_dqn_cic.pth"
 trained_network = DeepFlowNetwork(n_inputs=n_inputs, n_outputs=n_actions).to(device)
 trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
 trained_network.eval()
-counts = test_data["Number Label"].value_counts()
+counts = test_df["Label"].value_counts()
 confusion_array = np.zeros((n_actions, n_actions), dtype=np.int32)
 metrics_dictionary = {
     "accuracy": [],
