@@ -93,9 +93,6 @@ majority_df = majority_df[majority_df["Label"] != label]
 df = pd.concat([majority_df, minority_df], axis=0)
 
 print(df["Label"].value_counts())
-exit()
-
-
 
 # --- 3) 一発 CSV 出力 ---
 print("saving start")
