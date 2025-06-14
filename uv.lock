@@ -337,8 +337,8 @@ wheels = [
 
 [[package]]
 name = "flow-package"
-version = "0.1.6"
-source = { git = "https://github.com/Perpetuactivity/flow_package?branch=upgrade#d037b60de7ea7d34396f57ca74fef886149385bb" }
+version = "0.1.8"
+source = { git = "https://github.com/Perpetuactivity/flow_package?branch=upgrade#3078e04bb31a7f8087691a213af201ed0c4cb0c4" }
 dependencies = [
     { name = "gymnasium" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },

@@ -180,3 +180,4 @@ test*.*
 
 data_*
 *.zip
+!result/**/*

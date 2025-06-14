@@ -6,7 +6,7 @@ from imblearn.under_sampling import NearMiss
 from imblearn.combine      import SMOTEENN
 from imblearn.over_sampling import SMOTE
 import ipaddress as ip
-
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from util import BASE, CICIDS2017
@@ -32,8 +32,9 @@ def minority_sampling(df):
     # oversampling
     X = df.drop(columns=['Label'])
     y = df['Label']
+    smote = SMOTE(k_neighbors=1, random_state=42)
     pipeline = Pipeline([
-        ('smote', SMOTE(k_neighbors=2, random_state=42))
+        ('smote', smote)
     ])
     print("minority sampling start")
     X_res, y_res = pipeline.fit_resample(X, y)
@@ -73,6 +74,8 @@ df = df.rename(columns=rename_dict)
 
 print("end")
 
+df, test_df = train_test_split(df, test_size=0.5, random_state=42)
+
 # --- 2) アンダー+オーバーサンプリング ---
 label_counts = df["Label"].value_counts()
 label = label_counts.iloc[4:5].index[0]
@@ -98,6 +101,11 @@ print(df["Label"].value_counts())
 print("saving start")
 df.to_csv(
     "data_cicids2017/1_sampling/cicids2017_sampled.csv",
+    index=False,
+    chunksize=500_000
+)
+test_df.to_csv(
+    "data_cicids2017/1_sampling/cicids2017_sampled_test.csv",
     index=False,
     chunksize=500_000
 )

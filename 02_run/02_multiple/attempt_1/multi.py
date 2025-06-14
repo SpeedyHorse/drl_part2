@@ -27,20 +27,31 @@ from tqdm import tqdm
 
 CONST = f_p.Const()
 
-TRAIN_DIR = os.path.abspath("data_cicids2017/1_sampling")
-paths = glob(os.path.join(TRAIN_DIR, "cicids2017_sampled.csv"))
+TRAIN_PATH = "data_cicids2017/1_sampling/cicids2017_sampled.csv"
+TEST_PATH = "data_cicids2017/1_sampling/cicids2017_sampled_test.csv"
 
-df = pd.DataFrame()
-for path in tqdm(paths):
-    df = pd.concat([df, pd.read_csv(path, dtype=CONST.dtypes)])
+train_df = pd.read_csv(TRAIN_PATH)
+test_df = pd.read_csv(TEST_PATH)
 
-df = df.dropna(how="any").dropna(axis=1, how="any")
-df = df[df["Attempted Category"] == -1]
+train_df = train_df.dropna(how="any").dropna(axis=1, how="any")
+test_df = test_df.dropna(how="any").dropna(axis=1, how="any")
+
+train_df = train_df[train_df["Attempted Category"] == -1]
+test_df = test_df[test_df["Attempted Category"] == -1]
+
+df = pd.concat([train_df, test_df])
 
 labels = df["Label"].value_counts().index.tolist()
 df["Label"] = df["Label"].map(lambda x: labels.index(x))
 
-train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+train_df = df.iloc[:int(len(train_df))]
+test_df = df.iloc[int(len(train_df)):]
+
+train_label_len = len(train_df["Label"].unique())
+test_label_len = len(test_df["Label"].unique())
+print(f"train_label_len: {train_label_len}, test_label_len: {test_label_len}")
+if train_label_len != test_label_len:
+    raise ValueError("train_label_len != test_label_len")
 
 train_input = InputType(
     data=train_df,
@@ -104,7 +115,7 @@ def _plot_common_figure(fig=None, is_save=False, save_name=None, show_result=Fal
     グラフの共通処理（保存・表示・クリア）
     """
     if is_save and save_name:
-        plt.savefig(save_name)
+        plt.savefig(f"result/multi/{save_name}")
         plt.close()
         return
     plt.pause(0.001)
@@ -276,6 +287,7 @@ class DeepFlowNetwork(nn.Module):
         renew = F.relu(self.fc2(renew))
         return self.fc3(renew)
 
+MODEL_PATH = "multi_01.pth"
 
 UPDATE_TARGET_STEPS = 200
 BATCH_SIZE = 64
@@ -314,10 +326,13 @@ episode_rewards = []
 episode_precision = []
 loss_array = []
 
-with open("train.log", "w") as f:
+with open("result/multi/train.log", "w") as f:
     f.write("episode, show\n")
 
 def select_action(state_tensor: torch.Tensor):
+    """
+    ε-greedy法による行動選択
+    """
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1. * steps_done / EPS_DECAY)
@@ -328,41 +343,59 @@ def select_action(state_tensor: torch.Tensor):
     else:
         return torch.tensor([[random.randrange(n_actions)]], dtype=torch.long, device=device)
 
+def _unpack_state_batch(batch_states):
+    """
+    状態バッチ（port, protocol, features）をまとめて展開
+    """
+    port = torch.cat([s[0] for s in batch_states])
+    protocol = torch.cat([s[1] for s in batch_states])
+    features = torch.cat([s[2] for s in batch_states])
+    return [port, protocol, features]
+
 def optimize_model():
+    """
+    経験リプレイからバッチをサンプリングし、Qネットワークを最適化
+    """
     if len(memory) < BATCH_SIZE:
-        return
+        return None
+
+    # バッチ展開
     transitions = memory.sample(BATCH_SIZE)
     batch = Transaction(*zip(*transitions))
-    non_final_mask = torch.tensor(
-        tuple(map(lambda s: s is not None, batch.next_state)),
-        device=device,
-        dtype=torch.bool
-    )
-    state_batch_port = torch.cat([s[0] for s in batch.state])
-    state_batch_protocol = torch.cat([s[1] for s in batch.state])
-    state_batch_other = torch.cat([s[2] for s in batch.state])
-    state_batch = [state_batch_port, state_batch_protocol, state_batch_other]
+
+    # 現在状態・行動・報酬
+    state_batch = _unpack_state_batch(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
+
+    # 次状態（Noneを除外）
+    non_final_mask = torch.tensor([s is not None for s in batch.next_state], device=device, dtype=torch.bool)
+    non_final_next_states = [s for s in batch.next_state if s is not None]
+    if non_final_next_states:
+        next_state_batch = _unpack_state_batch(non_final_next_states)
+    else:
+        next_state_batch = None
+
+    # Q値計算
     state_action_values = policy_net(state_batch).gather(1, action_batch)
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    non_final_next_states_port = torch.cat([s[0] for s in batch.next_state if s is not None])
-    non_final_next_states_protocol = torch.cat([s[1] for s in batch.next_state if s is not None])
-    non_final_next_states_features = torch.cat([s[2] for s in batch.next_state if s is not None])
-    non_final_next_states = [non_final_next_states_port, non_final_next_states_protocol, non_final_next_states_features]
-    with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+    if next_state_batch is not None:
+        with torch.no_grad():
+            next_state_values[non_final_mask] = target_net(next_state_batch).max(1).values
+
+    # 損失計算と最適化
     expected_state_action_values = reward_batch + GAMMA * next_state_values
-    criterion = nn.MSELoss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    loss = nn.MSELoss()(state_action_values, expected_state_action_values.unsqueeze(1))
     optimizer.zero_grad()
     loss.backward()
     utils.clip_grad_value_(policy_net.parameters(), 1000)
     optimizer.step()
     return loss.item()
 
-MODEL_PATH = "multi_01.pth"
 def test_model():
+    """
+    学習済みモデルのテストと混同行列の出力
+    """
     trained_network = DeepFlowNetwork(n_inputs=n_inputs, n_outputs=n_actions).to(device)
     trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
     trained_network.eval()
@@ -385,77 +418,86 @@ def test_model():
                 break
             test_state = f_p.to_tensor(test_raw_next_state, device=device)
             if t % 100000 == 0:
-                plot_confusion_matrix(confusion_array, is_save=True)
-    for i in range(n_actions):
-        print("[", end="")
-        for j in range(n_actions):
-            if j == n_actions - 1:
-                print(confusion_array[i, j], end="")
-            else:
-                print(confusion_array[i, j], end=", ")
-        print("],")
-    with open("test.csv", "w") as f:
-        # write header
+                plot_confusion_matrix(confusion_array, is_save=True, name=f"test_confusion_matrix_{t}")
+            if t % 20_000 == 0:
+                print(f"\r==test step: {t:10d}/{len(test_df)}", end="")
+    # 混同行列の内容をcsvと標準出力に出す
+    # for i in range(n_actions):
+    #     print("[", end="")
+    #     for j in range(n_actions):
+    #         if j == n_actions - 1:
+    #             print(confusion_array[i, j], end="")
+    #         else:
+    #             print(confusion_array[i, j], end=", ")
+    #     print("],")
+    with open("result/multi/test.csv", "w") as f:
         f.write("row,")
         for i in range(n_actions):
             f.write(f"{i},")
         else:
             f.write("\n")
-        # write data
         for i in range(n_actions):
-            f.write(f"{i},") # write row index
+            f.write(f"{i},")
             for j in range(n_actions):
                 f.write(f"{confusion_array[i, j]},")
             f.write("\n")
-
     plot_confusion_matrix(confusion_array, show_result=True, is_save=True, name="test_confusion_matrix")
 
+def train_model(num_episodes=100):
+    """
+    強化学習の訓練ループ本体
+    """
+    for i_episode in range(num_episodes):
+        test = []
+        random.seed(i_episode)
+        sum_reward = 0
+        confusion_matrix = np.zeros((n_actions, n_actions), dtype=int)
+        initial_state = train_env.reset()
+        state = f_p.to_tensor(initial_state, device=device)
+        show = np.zeros(n_actions, dtype=int)
+        for t in count():
+            action = select_action(state)
+            raw_next_state, reward, terminated, truncated, info = train_env.step(action.item())
+            row_column_index = info["matrix_position"]
+            confusion_matrix[row_column_index[0], row_column_index[1]] += 1
+            test.append(info["answer"])
+            show[action.item()] += 1
+            reward = get_reward(info["action"], info["answer"])
+            if terminated:
+                with open("result/multi/train.log", "a") as f:
+                    f.write(f"{i_episode}, {show}\n")
+                next_state = None
+            else:
+                next_state = f_p.to_tensor(raw_next_state, device=device)
+            reward = torch.tensor([reward], device=device, dtype=torch.float32)
+            memory.push(state, action, next_state, reward)
+            sum_reward += reward.item() if reward.item() == 1 else 0
+            state = next_state
+            loss = optimize_model()
+            if terminated:
+                loss_array.append(loss)
+                episode_rewards.append(sum_reward / (t + 1))
+                break
+        base = confusion_matrix[1, 1] + confusion_matrix[1, 0]
+        episode_precision.append(
+            confusion_matrix[1, 1] / base if base != 0 else 0
+        )
+        print(f"episode: {i_episode+1:3d}, precision: {episode_precision[-1]:.3f}")
+        # 5エピソードごとにモデル保存・可視化・テスト
+        if i_episode % 10 == 9:
+            plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
+            torch.save(policy_net.state_dict(), MODEL_PATH)
+            # plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
 
-for i_episode in range(num_episodes):
-    test = []
-    random.seed(i_episode)
-    sum_reward = 0
-    confusion_matrix = np.zeros((n_actions, n_actions), dtype=int)
-    initial_state = train_env.reset()
-    state = f_p.to_tensor(initial_state, device=device)
-    show = np.zeros(n_actions, dtype=int)
-    for t in count():
-        action = select_action(state)
-        raw_next_state, reward, terminated, truncated, info = train_env.step(action.item())
-        row_column_index = info["matrix_position"]
-        # print(row_column_index)
-        confusion_matrix[row_column_index[0], row_column_index[1]] += 1
-        test.append(info["answer"])
-        show[action.item()] += 1
-        reward = get_reward(info["action"], info["answer"])
-        if terminated:
-            with open("train.log", "a") as f:
-                f.write(f"{i_episode}, {show}\n")
-            next_state = None
-        else:
-            next_state = f_p.to_tensor(raw_next_state, device=device)
-        reward = torch.tensor([reward], device=device, dtype=torch.float32)
-        memory.push(state, action, next_state, reward)
-        sum_reward += reward.item() if reward.item() == 1 else 0
-        state = next_state
-        loss = optimize_model()
-        if terminated:
-            loss_array.append(loss)
-            episode_rewards.append(sum_reward / (t + 1))
-            break
-    base = confusion_matrix[1, 1] + confusion_matrix[1, 0]
-    episode_precision.append(
-        confusion_matrix[1, 1] / base if base != 0 else 0
-    )
-    if i_episode > 0 and i_episode % 5 == 0:
-        plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
-        torch.save(policy_net.state_dict(), MODEL_PATH)
-        plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
-        test_model()
+            test_model()
+            if i_episode % 50 == 49:
+                plot_graph(episode_rewards, show_result=True, is_save=True)
+                plot_normal_graph(loss_array, show_result=True, is_save=True)
 
-plot_graph(episode_precision, show_result=True, is_save=True)
-plot_normal_graph(loss_array, show_result=True, is_save=True)
-
+# メイン処理
+train_model(num_episodes)
+# plot_graph(episode_precision, show_result=True, is_save=True)
+# plot_normal_graph(loss_array, show_result=True, is_save=True)
 
 train_env.close()
 
