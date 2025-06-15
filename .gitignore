@@ -181,3 +181,4 @@ test*.*
 data_*
 *.zip
 !result/**/*
+test_confusion_matrix_*.png

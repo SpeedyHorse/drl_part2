@@ -20,15 +20,27 @@ import torch.nn.functional as F
 import torch.nn.utils as utils
 import torch.optim as optim
 from tqdm import tqdm
+from sklearn.metrics import precision_score, recall_score, f1_score
+import argparse
+import pickle
+import torch.backends.cudnn
 
+try:
+    from torch.amp import autocast, GradScaler
+except ImportError:
+    from torch.cuda.amp import autocast, GradScaler
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+print("start")
 
 CONST = f_p.Const()
 
-TRAIN_PATH = "data_cicids2017/1_sampling/cicids2017_sampled.csv"
-TEST_PATH = "data_cicids2017/1_sampling/cicids2017_sampled_test.csv"
+print("load data")
+TRAIN_PATH = "data_cicids2017/1_sampling/full/cicids2017_sampled.csv"
+print("load train data")
+TEST_PATH = "data_cicids2017/1_sampling/full/cicids2017_sampled_test.csv"
+print("load test data")
 
 train_df = pd.read_csv(TRAIN_PATH)
 test_df = pd.read_csv(TEST_PATH)
@@ -47,15 +59,17 @@ df["Label"] = df["Label"].map(lambda x: labels.index(x))
 train_df = df.iloc[:int(len(train_df))]
 test_df = df.iloc[int(len(train_df)):]
 
+print("check label length")
 train_label_len = len(train_df["Label"].unique())
 test_label_len = len(test_df["Label"].unique())
+
 print(f"train_label_len: {train_label_len}, test_label_len: {test_label_len}")
 if train_label_len != test_label_len:
     raise ValueError("train_label_len != test_label_len")
 
 train_input = InputType(
     data=train_df,
-    sample_size=5000,
+    sample_size=100_000,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
@@ -63,7 +77,7 @@ train_env = MultiFlowEnv(train_input)
 
 test_input = InputType(
     data=test_df,
-    sample_size=5000,
+    sample_size=100_000,
     is_test=True,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
@@ -77,7 +91,7 @@ if is_ipython:
 device_name = "cpu"
 if True:
     if torch.cuda.is_available():
-        device_name = "cuda:1"
+        device_name = "cuda:3"
     elif torch.mps.is_available():
         device_name = "mps"
     elif torch.mtia.is_available():
@@ -265,6 +279,21 @@ def plot_confusion_matrix(confusion_array, class_names=None, show_result=False, 
     plt.grid(False)  # デフォルトのグリッドは消す
     _plot_common_figure(is_save=is_save, save_name=f"{name}.png", show_result=show_result)
 
+def plot_macro_metrics(f1_list, precision_list, recall_list, is_save=True):
+    """
+    エピソードごとのマクロF1・マクロ精度・マクロリコールを1枚の線グラフで表示
+    """
+    plt.figure(figsize=(15, 5))
+    plt.plot(f1_list, label='Macro F1', color='red')
+    plt.plot(precision_list, label='Macro Precision', color='blue')
+    plt.plot(recall_list, label='Macro Recall', color='green')
+    plt.xlabel('Episode')
+    plt.ylabel('Score')
+    plt.title('Macro Metrics per Episode')
+    plt.legend()
+    plt.grid()
+    _plot_common_figure(is_save=is_save, save_name="macro_metrics.png", show_result=True)
+
 
 PORT_DIM = 32
 
@@ -290,13 +319,18 @@ class DeepFlowNetwork(nn.Module):
 MODEL_PATH = "multi_01.pth"
 
 UPDATE_TARGET_STEPS = 200
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 100000
 TAU = 0.005
 LR = 1e-4
+
+torch.backends.cudnn.benchmark = True  # ネットワーク構造が固定なら高速化
+
+# optimize_modelのAMP対応
+scaler = GradScaler('cuda') if device.type == 'cuda' else None
 
 def get_reward(action, answer):
     if action == answer:
@@ -325,23 +359,15 @@ memory = ReplayMemory(10000)
 episode_rewards = []
 episode_precision = []
 loss_array = []
+episode_macro_precision = []
+episode_macro_recall = []
+episode_macro_f1 = []
+f1_max_list = []
+f1_min_list = []
+f1_mean_list = []
 
 with open("result/multi/train.log", "w") as f:
     f.write("episode, show\n")
-
-def select_action(state_tensor: torch.Tensor):
-    """
-    ε-greedy法による行動選択
-    """
-    global steps_done
-    sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1. * steps_done / EPS_DECAY)
-    steps_done += 1
-    if sample > eps_threshold:
-        with torch.no_grad():
-            return policy_net(state_tensor).max(1).indices.view(1, 1)
-    else:
-        return torch.tensor([[random.randrange(n_actions)]], dtype=torch.long, device=device)
 
 def _unpack_state_batch(batch_states):
     """
@@ -352,44 +378,65 @@ def _unpack_state_batch(batch_states):
     features = torch.cat([s[2] for s in batch_states])
     return [port, protocol, features]
 
+def select_action(state_tensor: torch.Tensor):
+    """
+    ε-greedy法による行動選択
+    """
+    global steps_done
+    sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1. * steps_done / EPS_DECAY)
+    steps_done += 1
+    # state_tensorはリスト形式（[port, protocol, other]）
+    if sample > eps_threshold:
+        with torch.no_grad():
+            return policy_net(state_tensor).max(1).indices.view(1, 1)
+    else:
+        return torch.tensor([[random.randrange(n_actions)]], dtype=torch.long, device=device)
+
 def optimize_model():
     """
     経験リプレイからバッチをサンプリングし、Qネットワークを最適化
     """
     if len(memory) < BATCH_SIZE:
         return None
-
-    # バッチ展開
     transitions = memory.sample(BATCH_SIZE)
     batch = Transaction(*zip(*transitions))
-
-    # 現在状態・行動・報酬
     state_batch = _unpack_state_batch(batch.state)
-    action_batch = torch.cat(batch.action)
-    reward_batch = torch.cat(batch.reward)
-
-    # 次状態（Noneを除外）
+    action_batch = torch.cat(batch.action).to(device)
+    reward_batch = torch.cat(batch.reward).to(device)
     non_final_mask = torch.tensor([s is not None for s in batch.next_state], device=device, dtype=torch.bool)
     non_final_next_states = [s for s in batch.next_state if s is not None]
     if non_final_next_states:
         next_state_batch = _unpack_state_batch(non_final_next_states)
     else:
         next_state_batch = None
-
-    # Q値計算
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    if next_state_batch is not None:
-        with torch.no_grad():
-            next_state_values[non_final_mask] = target_net(next_state_batch).max(1).values
-
-    # 損失計算と最適化
-    expected_state_action_values = reward_batch + GAMMA * next_state_values
-    loss = nn.MSELoss()(state_action_values, expected_state_action_values.unsqueeze(1))
-    optimizer.zero_grad()
-    loss.backward()
-    utils.clip_grad_value_(policy_net.parameters(), 1000)
-    optimizer.step()
+    if scaler is not None:
+        with autocast(device_type=device.type):
+            state_action_values = policy_net(state_batch).gather(1, action_batch)
+            next_state_values = torch.zeros(BATCH_SIZE, device=device)
+            if next_state_batch is not None:
+                with torch.no_grad():
+                    # Half→Float32にキャストして代入
+                    next_state_values[non_final_mask] = target_net(next_state_batch).max(1).values.float()
+            expected_state_action_values = reward_batch + GAMMA * next_state_values
+            loss = nn.MSELoss()(state_action_values, expected_state_action_values.unsqueeze(1))
+        optimizer.zero_grad()
+        scaler.scale(loss).backward()
+        utils.clip_grad_value_(policy_net.parameters(), 1000)
+        scaler.step(optimizer)
+        scaler.update()
+    else:
+        state_action_values = policy_net(state_batch).gather(1, action_batch)
+        next_state_values = torch.zeros(BATCH_SIZE, device=device)
+        if next_state_batch is not None:
+            with torch.no_grad():
+                next_state_values[non_final_mask] = target_net(next_state_batch).max(1).values
+        expected_state_action_values = reward_batch + GAMMA * next_state_values
+        loss = nn.MSELoss()(state_action_values, expected_state_action_values.unsqueeze(1))
+        optimizer.zero_grad()
+        loss.backward()
+        utils.clip_grad_value_(policy_net.parameters(), 1000)
+        optimizer.step()
     return loss.item()
 
 def test_model():
@@ -397,7 +444,7 @@ def test_model():
     学習済みモデルのテストと混同行列の出力
     """
     trained_network = DeepFlowNetwork(n_inputs=n_inputs, n_outputs=n_actions).to(device)
-    trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
+    trained_network.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     trained_network.eval()
     confusion_array = np.zeros((n_actions, n_actions), dtype=np.int32)
     for i_loop in range(1):
@@ -430,6 +477,7 @@ def test_model():
     #         else:
     #             print(confusion_array[i, j], end=", ")
     #     print("],")
+    print(f"\r==test step: {len(test_df)}/{len(test_df)} done ==")
     with open("result/multi/test.csv", "w") as f:
         f.write("row,")
         for i in range(n_actions):
@@ -448,6 +496,7 @@ def train_model(num_episodes=100):
     強化学習の訓練ループ本体
     """
     for i_episode in range(num_episodes):
+        print(f"episode: {i_episode+1:3d}", end="")
         test = []
         random.seed(i_episode)
         sum_reward = 0
@@ -478,14 +527,38 @@ def train_model(num_episodes=100):
                 loss_array.append(loss)
                 episode_rewards.append(sum_reward / (t + 1))
                 break
-        base = confusion_matrix[1, 1] + confusion_matrix[1, 0]
-        episode_precision.append(
-            confusion_matrix[1, 1] / base if base != 0 else 0
-        )
-        print(f"episode: {i_episode+1:3d}, precision: {episode_precision[-1]:.3f}")
+
+        # confusion_matrixからy_true, y_predを作成
+        y_true = []
+        y_pred = []
+        for pred in range(n_actions):
+            for true in range(n_actions):
+                count_buf = confusion_matrix[pred, true]
+                y_true += [true] * count_buf
+                y_pred += [pred] * count_buf
+
+        macro_precision = precision_score(y_true, y_pred, average='macro', zero_division=0)
+        macro_recall = recall_score(y_true, y_pred, average='macro', zero_division=0)
+        macro_f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
+
+        f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
+        f1_max = f1_per_class.max()
+        f1_min = f1_per_class.min()
+        f1_mean = f1_per_class.mean()
+
+        print(f", macro_precision: {macro_precision:.3f}, F1(max): {f1_max:.3f}, F1(min): {f1_min:.3f}, F1(mean): {f1_mean:.3f}")
+
+        episode_macro_precision.append(macro_precision)
+        episode_macro_recall.append(macro_recall)
+        episode_macro_f1.append(macro_f1)
+        f1_max_list.append(f1_max)
+        f1_min_list.append(f1_min)
+        f1_mean_list.append(f1_mean)
+
         # 5エピソードごとにモデル保存・可視化・テスト
         if i_episode % 10 == 9:
             plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
+            plot_macro_metrics(episode_macro_f1, episode_macro_precision, episode_macro_recall, is_save=True)
             torch.save(policy_net.state_dict(), MODEL_PATH)
             # plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
 
@@ -494,11 +567,45 @@ def train_model(num_episodes=100):
                 plot_graph(episode_rewards, show_result=True, is_save=True)
                 plot_normal_graph(loss_array, show_result=True, is_save=True)
 
-# メイン処理
-train_model(num_episodes)
-# plot_graph(episode_precision, show_result=True, is_save=True)
-# plot_normal_graph(loss_array, show_result=True, is_save=True)
+def plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True):
+    """
+    エピソードごとのF1スコア最大・最小・平均の推移を1枚の折れ線グラフで表示
+    """
+    plt.figure(figsize=(15, 5))
+    plt.plot(f1_max_list, label='F1 max', color='red')
+    plt.plot(f1_min_list, label='F1 min', color='blue')
+    plt.plot(f1_mean_list, label='F1 mean', color='green')
+    plt.xlabel('Episode')
+    plt.ylabel('F1 Score')
+    plt.title('Per-class F1 Score (max/min/mean) per Episode')
+    plt.legend()
+    plt.grid()
+    _plot_common_figure(is_save=is_save, save_name="f1_stats.png", show_result=True)
 
-train_env.close()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume', action='store_true', help='保存済みモデルから続きで訓練')
+    args = parser.parse_args()
+
+    # モデル・履歴のロード分岐
+    if args.resume and os.path.exists(MODEL_PATH):
+        print(f"== モデル {MODEL_PATH} をロードして続きから訓練します ==")
+        policy_net.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        target_net.load_state_dict(policy_net.state_dict())
+        if os.path.exists("result/multi/metrics_history.pkl"):
+            with open("result/multi/metrics_history.pkl", "rb") as f:
+                history = pickle.load(f)
+                episode_macro_f1[:] = history.get('macro_f1', [])
+                episode_macro_precision[:] = history.get('macro_precision', [])
+                episode_macro_recall[:] = history.get('macro_recall', [])
+                episode_rewards[:] = history.get('rewards', [])
+                loss_array[:] = history.get('loss', [])
+    else:
+        print(f"== 新規で訓練を開始します ==")
+
+    train_model(num_episodes)
+    plot_macro_metrics(episode_macro_f1, episode_macro_precision, episode_macro_recall, is_save=True)
+    plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True)
+    train_env.close()
 
 
