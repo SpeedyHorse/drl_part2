@@ -71,7 +71,14 @@ rename_dict = {
 
 df = df.rename(columns=rename_dict)
 
+df.to_csv(
+    "data_cicids2017/1_formated/cicids2017_formated.csv", 
+    index=False,
+    chunksize=500_000
+)
+
 print("end")
+exit()
 
 # --- 2) アンダー+オーバーサンプリング ---
 label_counts = df["Label"].value_counts()
