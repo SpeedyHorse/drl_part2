@@ -37,9 +37,9 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "data_cicids2017/1_sampling/full/cicids2017_sampled.csv"
+TRAIN_PATH = "data_cicids2017/1_sampling/cicids2017_sampled.csv"
 print("load train data")
-TEST_PATH = "data_cicids2017/1_sampling/full/cicids2017_sampled_test.csv"
+TEST_PATH = "data_cicids2017/1_sampling/cicids2017_sampled_test.csv"
 print("load test data")
 
 train_df = pd.read_csv(TRAIN_PATH)
@@ -69,7 +69,7 @@ if train_label_len != test_label_len:
 
 train_input = InputType(
     data=train_df,
-    sample_size=100_000,
+    sample_size=1_000,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
@@ -77,7 +77,7 @@ train_env = MultiFlowEnv(train_input)
 
 test_input = InputType(
     data=test_df,
-    sample_size=100_000,
+    sample_size=1_000,
     is_test=True,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
@@ -91,7 +91,7 @@ if is_ipython:
 device_name = "cpu"
 if True:
     if torch.cuda.is_available():
-        device_name = "cuda:3"
+        device_name = "cuda:1"
     elif torch.mps.is_available():
         device_name = "mps"
     elif torch.mtia.is_available():
@@ -146,7 +146,7 @@ def plot_graph(data: list, show_result=False, is_save=False):
     エピソードごとの比率推移グラフ
     """
     plt.figure(figsize=(15, 5))
-    plt.title("Result" if show_result else "Training...")
+    plt.title("Result" if show_result else "Training..." + f" {len(data)}")
     means = moving_average(data, 200)
     lines = np.full(len(means), 1 / 15)
     first = len(data) - len(means)
@@ -168,7 +168,7 @@ def plot_normal_graph(data: list, show_result=False, is_save=False):
     ステップごとの損失推移グラフ
     """
     plt.figure(figsize=(15, 5))
-    plt.title("Result" if show_result else "Training...")
+    plt.title("Result" if show_result else "Training..." + f" {len(data)}")
     means = moving_average(data, 200)
     plt.xlabel("Step")
     plt.ylabel("Loss")
@@ -183,7 +183,7 @@ def plot_double_graph(data1: list, data2: list, show_result=False, is_save=False
     """
     fig = plt.figure(figsize=(15, 5))
     ax1 = fig.add_subplot(1, 2, 1)
-    ax1.set_title("Result" if show_result else "Training...")
+    ax1.set_title("Result" if show_result else "Training..." + f" {len(data1)}")
     means_ax1 = moving_average(data1, 200)
     lines_ax1 = np.full(len(means_ax1), 1 / 15)
     first_ax1 = len(data1) - len(means_ax1)
@@ -197,7 +197,7 @@ def plot_double_graph(data1: list, data2: list, show_result=False, is_save=False
     ax1.set_ylabel("ratio")
     ax1.plot(means_ax1, color="red")
     ax2 = fig.add_subplot(1, 2, 2)
-    ax2.set_title("Result" if show_result else "Training...")
+    ax2.set_title("Result" if show_result else "Training..." + f" {len(data2)}")
     means_ax2 = moving_average(data2, 200)
     first_ax2 = len(data2) - len(means_ax2)
     if first_ax2 < 0:
@@ -246,7 +246,7 @@ def plot_confusion_matrix(confusion_array, class_names=None, show_result=False, 
     混同行列のヒートマップ表示（グリッドをマス目に合わせ、割合を小数で表示、%記号なし）
     """
     plt.figure(figsize=(10, 8))
-    plt.title("Result" if show_result else "Testing...")
+    plt.title("Result" if show_result else "Testing..." + f" {len(confusion_array)}")
     if class_names is None:
         class_names = [f'Class {i}' for i in range(len(confusion_array))]
     conf_matrix = confusion_array.copy().astype(float)
@@ -289,10 +289,25 @@ def plot_macro_metrics(f1_list, precision_list, recall_list, is_save=True):
     plt.plot(recall_list, label='Macro Recall', color='green')
     plt.xlabel('Episode')
     plt.ylabel('Score')
-    plt.title('Macro Metrics per Episode')
+    plt.title('Macro Metrics per Episode' + f" {len(f1_list)}")
     plt.legend()
     plt.grid()
     _plot_common_figure(is_save=is_save, save_name="macro_metrics.png", show_result=True)
+
+def plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True):
+    """
+    エピソードごとのF1スコア最大・最小・平均の推移を1枚の折れ線グラフで表示
+    """
+    plt.figure(figsize=(15, 5))
+    plt.plot(f1_max_list, label='F1 max', color='red')
+    plt.plot(f1_min_list, label='F1 min', color='blue')
+    plt.plot(f1_mean_list, label='F1 mean', color='green')
+    plt.xlabel('Episode')
+    plt.ylabel('F1 Score')
+    plt.title('Per-class F1 Score (max/min/mean) per Episode' + f" {len(f1_max_list)}")
+    plt.legend()
+    plt.grid()
+    _plot_common_figure(is_save=is_save, save_name="f1_stats.png", show_result=True)
 
 
 PORT_DIM = 32
@@ -340,7 +355,7 @@ def get_reward(action, answer):
     else:
         return -1
 
-num_episodes = 100
+num_episodes = 1_000
 n_actions = train_env.action_space.n
 n_inputs = train_env.observation_space.shape[0]
 
@@ -556,31 +571,29 @@ def train_model(num_episodes=100):
         f1_mean_list.append(f1_mean)
 
         # 5エピソードごとにモデル保存・可視化・テスト
-        if i_episode % 10 == 9:
+        if i_episode % 50 == 49:
             plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
+            plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True)
             plot_macro_metrics(episode_macro_f1, episode_macro_precision, episode_macro_recall, is_save=True)
             torch.save(policy_net.state_dict(), MODEL_PATH)
             # plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
 
             test_model()
-            if i_episode % 50 == 49:
+            if i_episode % 100 == 99:
                 plot_graph(episode_rewards, show_result=True, is_save=True)
                 plot_normal_graph(loss_array, show_result=True, is_save=True)
 
-def plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True):
-    """
-    エピソードごとのF1スコア最大・最小・平均の推移を1枚の折れ線グラフで表示
-    """
-    plt.figure(figsize=(15, 5))
-    plt.plot(f1_max_list, label='F1 max', color='red')
-    plt.plot(f1_min_list, label='F1 min', color='blue')
-    plt.plot(f1_mean_list, label='F1 mean', color='green')
-    plt.xlabel('Episode')
-    plt.ylabel('F1 Score')
-    plt.title('Per-class F1 Score (max/min/mean) per Episode')
-    plt.legend()
-    plt.grid()
-    _plot_common_figure(is_save=is_save, save_name="f1_stats.png", show_result=True)
+        # 訓練終了後に指標履歴を保存
+        history = {
+            'macro_f1': episode_macro_f1,
+            'macro_precision': episode_macro_precision,
+            'macro_recall': episode_macro_recall,
+            'rewards': episode_rewards,
+            'loss': loss_array,
+        }
+        with open("result/multi/metrics_history.pkl", "wb") as f:
+            pickle.dump(history, f)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

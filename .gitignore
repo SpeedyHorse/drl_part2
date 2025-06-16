@@ -182,3 +182,6 @@ data_*
 *.zip
 !result/**/*
 test_confusion_matrix_*.png
+
+gen_model_*.pth
+disc_model_*.pth

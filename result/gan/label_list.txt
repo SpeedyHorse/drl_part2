@@ -1,0 +1,27 @@
+BENIGN
+Botnet
+Botnet - Attempted
+DDoS
+DoS GoldenEye
+DoS GoldenEye - Attempted
+DoS Hulk
+DoS Hulk - Attempted
+DoS Slowhttptest
+DoS Slowhttptest - Attempted
+DoS Slowloris
+DoS Slowloris - Attempted
+FTP-Patator
+FTP-Patator - Attempted
+Heartbleed
+Infiltration
+Infiltration - Attempted
+Infiltration - Portscan
+Portscan
+SSH-Patator
+SSH-Patator - Attempted
+Web Attack - Brute Force
+Web Attack - Brute Force - Attempted
+Web Attack - SQL Injection
+Web Attack - SQL Injection - Attempted
+Web Attack - XSS
+Web Attack - XSS - Attempted
