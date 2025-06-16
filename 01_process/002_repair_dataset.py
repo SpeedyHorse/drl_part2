@@ -72,7 +72,14 @@ rename_dict = {
 
 df = df.rename(columns=rename_dict)
 
+df.to_csv(
+    "data_cicids2017/1_formated/cicids2017_formated.csv", 
+    index=False,
+    chunksize=500_000
+)
+
 print("end")
+exit()
 
 df, test_df = train_test_split(df, test_size=0.5, random_state=42)
 
