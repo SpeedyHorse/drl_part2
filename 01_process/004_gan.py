@@ -220,6 +220,26 @@ def train(df):
     torch.save(gen_model.state_dict(), f"result/gan/gen_model_{label}.pth")
     torch.save(disc_model.state_dict(), f"result/gan/disc_model_{label}.pth")
 
+def conversion(df):
+    def to_int(x, vmax, vmin):
+        return int(x * (vmax - vmin) + vmin)
+    def to_float(x, vmax, vmin):
+        return float(x * (vmax - vmin) + vmin)
+    
+    LABEL_PATH = "min_max_value.csv"
+    value_df = pd.read_csv(LABEL_PATH)
+    for i in range(len(value_df)):
+        column = value_df.iloc[i]["label"]
+        if column not in df.columns:
+            continue
+        min_value = value_df.iloc[i]["min"]
+        max_value = value_df.iloc[i]["max"]
+
+        df[column] = df[column].apply(
+            lambda x: to_int(x, max_value, min_value) if value_df.iloc[i]["type"] == 0 else to_float(x, max_value, min_value)
+        )
+    return df
+
 if __name__ == "__main__":
     args = sys.argv
     if len(args) != 3:
@@ -287,6 +307,15 @@ if __name__ == "__main__":
                 tmp_df = label_df.sample(MAX_RANGE // 10)
                 result_df = pd.concat([result_df, tmp_df])
                 print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
+        
+        result_df = conversion(result_df)
+        # print head of result_df (full data)
+        pd.set_option('display.max_columns', None)
+        print(result_df.head(3))
+        ok = input("Ok? (y/n): ")
+        if ok != "y":
+            print("Exiting...")
+            sys.exit(1)
 
         df = pd.concat([original_df, result_df])
         df.to_csv("result/gan/all_data.csv", index=False, chunksize=10_000)
