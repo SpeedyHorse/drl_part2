@@ -37,18 +37,18 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "data_cicids2017/1_sampling/cicids2017_sampled.csv"
+TRAIN_PATH = "result/gan/all_data.csv"
 print("load train data")
-TEST_PATH = "data_cicids2017/1_sampling/cicids2017_sampled_test.csv"
+# TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
 print("load test data")
 
 train_df = pd.read_csv(TRAIN_PATH)
-test_df = pd.read_csv(TEST_PATH)
+test_df = pd.read_csv(TRAIN_PATH)
 
 train_df = train_df.dropna(how="any").dropna(axis=1, how="any")
 test_df = test_df.dropna(how="any").dropna(axis=1, how="any")
 
-train_df = train_df[train_df["Attempted Category"] == -1]
+train_df = train_df[train_df["Attempted Category"] < 0]
 test_df = test_df[test_df["Attempted Category"] == -1]
 
 df = pd.concat([train_df, test_df])
@@ -66,6 +66,19 @@ test_label_len = len(test_df["Label"].unique())
 print(f"train_label_len: {train_label_len}, test_label_len: {test_label_len}")
 if train_label_len != test_label_len:
     raise ValueError("train_label_len != test_label_len")
+
+buf_df = pd.DataFrame()
+for label in train_df["Label"].unique():
+    df_label = train_df[train_df["Label"] == label]
+    if len(df_label) > 10_000:
+        # clip 10_000
+        buf_df = pd.concat([buf_df, df_label.sample(10_000)])
+    else:
+        buf_df = pd.concat([buf_df, df_label])
+
+train_df = buf_df
+
+print(train_df["Label"].value_counts())
 
 train_input = InputType(
     data=train_df,

@@ -9,11 +9,17 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+import matplotlib
+import re
 
 # CUDA対応
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MAX_RANGE = 100_000
+is_ipython = 'inline' in matplotlib.get_backend()
+if is_ipython:
+    from IPython import display
 
 class DataFrameDataset(Dataset):
     def __init__(self, df, feature_cols, label_cols=None, preprocess_fn=None):
@@ -57,7 +63,7 @@ class GeneratorNetwork(nn.Module):
     def forward(self, z):
         z = F.leaky_relu(self.fc1(z), negative_slope=0.2)
         z = F.tanh(self.fc2(z))
-        return self.fc3(z)
+        return F.relu(self.fc3(z))
 
 
 class DiscriminatorNetwork(nn.Module):
@@ -79,6 +85,20 @@ class DiscriminatorNetwork(nn.Module):
         x = F.leaky_relu(self.fc2(x), negative_slope=0.2)
         return F.sigmoid(self.fc3(x))
         
+
+def plot_losses(d_losses, g_losses, title):
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(d_losses, label='Discriminator Loss')
+    ax.plot(g_losses, label='Generator Loss')
+    ax.set_xlabel('Iteration')
+    ax.set_ylabel('Loss')
+    ax.legend()
+    ax.set_title(title)
+
+    # 保存処理を追加
+    save_path = f"result/gan/loss_plot.png"
+    plt.savefig(save_path)
 
 def train_step(gen_model, disc_model, real_input, batch_size, z_size):
     # uniform random
@@ -108,9 +128,23 @@ def train_step(gen_model, disc_model, real_input, batch_size, z_size):
     return d_loss, g_loss
 
 
+def generate_data(gen_model, z_size, num_samples, columns, label):
+    z = torch.rand(num_samples, z_size, device=device)
+    fake_data = gen_model(z)
+
+    # to dataframe
+    df = pd.DataFrame(fake_data.detach().cpu().numpy(), columns=columns)
+    df["Label"] = label
+    df["Attempted Category"] = -2
+    return df
+
+
 def train_gan(generator, discriminator, dataloader, num_epochs, z_dim):
     if len(dataloader) * num_epochs > MAX_RANGE:
         num_epochs = MAX_RANGE // len(dataloader)
+    
+    d_losses = []
+    g_losses = []
 
     timing = num_epochs // 2
 
@@ -135,14 +169,26 @@ def train_gan(generator, discriminator, dataloader, num_epochs, z_dim):
             _, g_loss = train_step(generator, discriminator, real_data, batch_size, z_dim)
             g_loss.backward()
             g_optimizer.step()
+            
+            d_losses.append(d_loss.item())
+            g_losses.append(g_loss.item())
 
             # if i % 500 == 0:
             #     print(f"\rEpoch {epoch:4d} ... {i:10d} // {len(dataloader)}", end="")
+        if (epoch + 1) % (timing // 2) == 0:
+            title = f"Epoch {epoch / num_epochs:.2f}"
+            print(f"Epoch {epoch / num_epochs:.2f} completed")
+            plot_losses(d_losses, g_losses, title)
         if (epoch + 1) % timing == 0:
             print(f"Epoch {epoch + 1:4d} completed")
     end_time = time.time()
     print(f"Training completed in {end_time - start_time} seconds")
 
+    # sample generate
+    # z = torch.rand(100, z_dim, device=device)
+    # fake_data = generator(z)
+    # print(fake_data)
+    # time.sleep(10)
 
 def train(df):
     columns = df.columns.tolist()
@@ -165,7 +211,7 @@ def train(df):
     z_size = data_column_size
     gen_hidden_size = 100
     disc_hidden_size = 100
-    epochs = 10_000
+    epochs = 100_000
 
     gen_model = GeneratorNetwork(z_size, gen_hidden_size, data_column_size).to(device)
     disc_model = DiscriminatorNetwork(data_column_size, disc_hidden_size).to(device)
@@ -173,16 +219,6 @@ def train(df):
     train_gan(gen_model, disc_model, dataloader, epochs, data_column_size)
     torch.save(gen_model.state_dict(), f"result/gan/gen_model_{label}.pth")
     torch.save(disc_model.state_dict(), f"result/gan/disc_model_{label}.pth")
-
-def generate_data(gen_model, z_size, num_samples, columns, label):
-    z = torch.rand(num_samples, z_size, device=device)
-    fake_data = gen_model(z)
-
-    # to dataframe
-    df = pd.DataFrame(fake_data.detach().cpu().numpy(), columns=columns)
-    df["Label"] = label
-    return df
-
 
 if __name__ == "__main__":
     args = sys.argv
@@ -192,15 +228,14 @@ if __name__ == "__main__":
     else:
         print(f"is_train: {args[1]}, is_generate: {args[2]}")
 
-    TRAIN_PATH = os.path.abspath("data_cicids2017/1_formated/cicids2017_formated.csv")
+    TRAIN_PATH = os.path.abspath("data_cicids2017/1_formated/cicids2017_formated_scaled.csv")
     df = pd.read_csv(TRAIN_PATH)
-    
+
     le = LabelEncoder()
     df["Label"] = le.fit_transform(df["Label"])
     labels = df["Label"].unique()
     class_list = le.classes_
     original_df = df.copy()
-
 
     df = df.drop(columns=["Attempted Category"])
     print(df.shape)
@@ -215,7 +250,7 @@ if __name__ == "__main__":
                 train(df_label)
             else:
                 print(f"=== Skipping label: {label}, count: {len(df_label)} ===")
-        
+
         with open("result/gan/label_list.txt", "w") as f:
             for label in class_list:
                 f.write(f"{label}\n")
@@ -242,14 +277,17 @@ if __name__ == "__main__":
 
             try:
                 gen_model.load_state_dict(torch.load(f"result/gan/gen/gen_model_[{label}].pth"))
+                data_size = MAX_RANGE // 10 - len(label_df)
+                print(f"+++ Generating {data_size} data for label: {label} +++")
+                tmp_df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
+                result_df = pd.concat([result_df, tmp_df])
+                print(f"+++ Generated {len(tmp_df)} data for label: {label} +++")
             except FileNotFoundError:
                 print(f"=== Model not found for label: {label} ===")
-                continue
-            
-            data_size = MAX_RANGE // 10 - len(label_df)
-            print(f"+++ Generating {data_size} data for label: {label} +++")
-            df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
-            result_df = pd.concat([result_df, df])
-            print(f"+++ Generated {len(df)} data for label: {label} +++")
-        
+                tmp_df = label_df.sample(MAX_RANGE // 10)
+                result_df = pd.concat([result_df, tmp_df])
+                print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
+
+        df = pd.concat([original_df, result_df])
+        df.to_csv("result/gan/all_data.csv", index=False, chunksize=10_000)
         result_df.to_csv("result/gan/generated_data.csv", index=False, chunksize=1_000)
