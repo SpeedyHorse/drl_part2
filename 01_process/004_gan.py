@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import os
+import sys
 import time
 import torch.nn as nn
 import torch.nn.functional as F
@@ -173,28 +174,82 @@ def train(df):
     torch.save(gen_model.state_dict(), f"result/gan/gen_model_{label}.pth")
     torch.save(disc_model.state_dict(), f"result/gan/disc_model_{label}.pth")
 
+def generate_data(gen_model, z_size, num_samples, columns, label):
+    z = torch.rand(num_samples, z_size, device=device)
+    fake_data = gen_model(z)
+
+    # to dataframe
+    df = pd.DataFrame(fake_data.detach().cpu().numpy(), columns=columns)
+    df["Label"] = label
+    return df
+
 
 if __name__ == "__main__":
+    args = sys.argv
+    if len(args) != 3:
+        print("Usage: python 004_gan.py <is_train> <is_generate>")
+        sys.exit(1)
+    else:
+        print(f"is_train: {args[1]}, is_generate: {args[2]}")
+
     TRAIN_PATH = os.path.abspath("data_cicids2017/1_formated/cicids2017_formated.csv")
     df = pd.read_csv(TRAIN_PATH)
-    columns = df.columns.tolist()
+    
+    le = LabelEncoder()
+    df["Label"] = le.fit_transform(df["Label"])
+    labels = df["Label"].unique()
+    class_list = le.classes_
+    original_df = df.copy()
+
 
     df = df.drop(columns=["Attempted Category"])
     print(df.shape)
 
-    le = LabelEncoder()
-    df["Label"] = le.fit_transform(df["Label"])
-    labels = df["Label"].unique()
+    is_train = input("Train? (y/n): ") if not args[1] else args[1]
+    if is_train == "y":
+        for label in labels:
+            df_label = df[df["Label"] == label]
+            if len(df_label) < MAX_RANGE // 10:
+                print(f"=== Training for label: {label}, count: {len(df_label)} ===")
+                # continue
+                train(df_label)
+            else:
+                print(f"=== Skipping label: {label}, count: {len(df_label)} ===")
+        
+        with open("result/gan/label_list.txt", "w") as f:
+            for label in class_list:
+                f.write(f"{label}\n")
 
-    for label in labels:
-        df_label = df[df["Label"] == label]
-        if len(df_label) < MAX_RANGE // 10:
-            print(f"=== Training for label: {label}, count: {len(df_label)} ===")
-            # continue
-            train(df_label)
-        else:
-            print(f"=== Skipping label: {label}, count: {len(df_label)} ===")
-    
-    with open("result/gan/label_list.txt", "w") as f:
-        for label in le.classes_:
-            f.write(f"{label}\n")
+    is_generate = input("Generate? (y/n): ") if not args[2] else args[2]
+    if is_generate == "y":
+        with open("result/gan/label_list.txt", "r") as f:
+            class_list = [line.strip() for line in f.readlines()]
+
+        original_df = original_df[original_df["Attempted Category"] == -1]
+
+        gen_hidden_size = 100
+
+        result_df = pd.DataFrame(
+            columns=original_df.columns.tolist()
+        )
+
+        for label in original_df["Label"].unique():
+            print(f"=== Generating for label: {label}, name: {class_list[label]} ===")
+            label_df = original_df[original_df["Label"] == label].drop(columns=["Label", "Attempted Category"])
+            data_column_size = len(label_df.columns)
+            z_size = data_column_size
+            gen_model = GeneratorNetwork(z_size, gen_hidden_size, data_column_size).to(device)
+
+            try:
+                gen_model.load_state_dict(torch.load(f"result/gan/gen/gen_model_[{label}].pth"))
+            except FileNotFoundError:
+                print(f"=== Model not found for label: {label} ===")
+                continue
+            
+            data_size = MAX_RANGE // 10 - len(label_df)
+            print(f"+++ Generating {data_size} data for label: {label} +++")
+            df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
+            result_df = pd.concat([result_df, df])
+            print(f"+++ Generated {len(df)} data for label: {label} +++")
+        
+        result_df.to_csv("result/gan/generated_data.csv", index=False, chunksize=1_000)
