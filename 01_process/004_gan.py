@@ -228,9 +228,10 @@ def conversion(df):
     
     LABEL_PATH = "min_max_value.csv"
     value_df = pd.read_csv(LABEL_PATH)
+    setting_labels = ["Protocol", "Destination Port"]
     for i in range(len(value_df)):
         column = value_df.iloc[i]["label"]
-        if column not in df.columns:
+        if column not in df.columns and column not in setting_labels:
             continue
         min_value = value_df.iloc[i]["min"]
         max_value = value_df.iloc[i]["max"]
@@ -301,15 +302,15 @@ if __name__ == "__main__":
                 data_size = MAX_RANGE // 10 - len(label_df)
                 print(f"+++ Generating {data_size} data for label: {label} +++")
                 tmp_df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
-                tmp_df = conversion(tmp_df)
                 print(tmp_df.head(2))
-                result_df = pd.concat([result_df, tmp_df])
                 print(f"+++ Generated {len(tmp_df)} data for label: {label} +++")
             except FileNotFoundError:
                 print(f"=== Model not found for label: {label} ===")
-                tmp_df = label_df.sample(MAX_RANGE // 10)
-                result_df = pd.concat([result_df, tmp_df])
                 print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
+                tmp_df = label_df.sample(MAX_RANGE // 10)
+            
+            tmp_df = conversion(tmp_df)
+            result_df = pd.concat([result_df, tmp_df])
         
         # print head of result_df (full data)
         ok = input("Ok? (y/n): ")
