@@ -306,8 +306,8 @@ if __name__ == "__main__":
                 print(f"+++ Generated {len(tmp_df)} data for label: {label} +++")
             except FileNotFoundError:
                 print(f"=== Model not found for label: {label} ===")
-                print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
                 tmp_df = label_df.sample(MAX_RANGE // 10)
+                print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
             
             tmp_df = conversion(tmp_df)
             result_df = pd.concat([result_df, tmp_df])
