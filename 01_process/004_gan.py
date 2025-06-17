@@ -239,6 +239,7 @@ def conversion(df):
         df[column] = df[column].apply(
             lambda x: to_int(x, max_value, min_value) if value_df.iloc[i]["type"] == 0 else to_float(x, max_value, min_value)
         )
+    print(df[setting_labels].head(3))
     return df
 
 if __name__ == "__main__":
@@ -302,7 +303,6 @@ if __name__ == "__main__":
                 data_size = MAX_RANGE // 10 - len(label_df)
                 print(f"+++ Generating {data_size} data for label: {label} +++")
                 tmp_df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
-                print(tmp_df.head(2))
                 print(f"+++ Generated {len(tmp_df)} data for label: {label} +++")
             except FileNotFoundError:
                 print(f"=== Model not found for label: {label} ===")
@@ -310,7 +310,7 @@ if __name__ == "__main__":
                 print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
             
             tmp_df = conversion(tmp_df)
-            result_df = pd.concat([result_df, tmp_df])
+            result_df = pd.concat([result_df, tmp_df]) if not result_df.empty else tmp_df
         
         # print head of result_df (full data)
         ok = input("Ok? (y/n): ")
