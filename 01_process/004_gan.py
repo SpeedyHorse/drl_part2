@@ -241,6 +241,7 @@ def conversion(df):
     return df
 
 if __name__ == "__main__":
+    pd.set_option('display.max_columns', None)
     args = sys.argv
     if len(args) != 3:
         print("Usage: python 004_gan.py <is_train> <is_generate>")
@@ -300,6 +301,8 @@ if __name__ == "__main__":
                 data_size = MAX_RANGE // 10 - len(label_df)
                 print(f"+++ Generating {data_size} data for label: {label} +++")
                 tmp_df = generate_data(gen_model, z_size, data_size, label_df.columns, label)
+                tmp_df = conversion(tmp_df)
+                print(tmp_df.head(2))
                 result_df = pd.concat([result_df, tmp_df])
                 print(f"+++ Generated {len(tmp_df)} data for label: {label} +++")
             except FileNotFoundError:
@@ -308,10 +311,7 @@ if __name__ == "__main__":
                 result_df = pd.concat([result_df, tmp_df])
                 print(f"+++ Picked {len(tmp_df)} data for label: {label} +++")
         
-        result_df = conversion(result_df)
         # print head of result_df (full data)
-        pd.set_option('display.max_columns', None)
-        print(result_df.head(3))
         ok = input("Ok? (y/n): ")
         if ok != "y":
             print("Exiting...")
