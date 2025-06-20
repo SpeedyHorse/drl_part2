@@ -38,9 +38,7 @@ CONST = f_p.Const()
 
 print("load data")
 TRAIN_PATH = "data_cicids2017/3_final/cicids2017_formated_scaled.csv"
-print("load train data")
 # TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
-print("load test data")
 
 train_df = pd.read_csv(TRAIN_PATH)
 # test_df = pd.read_csv(TRAIN_PATH)
@@ -97,6 +95,7 @@ test_input = InputType(
     exclude_columns=["Attempted Category"]
 )
 test_env = MultiFlowEnv(test_input)
+print("load data done")
 
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
@@ -323,16 +322,27 @@ def plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True):
     plt.grid()
     _plot_common_figure(is_save=is_save, save_name="f1_stats.png", show_result=True)
 
-
+PROTOCOL_DIM = 8
 PORT_DIM = 32
+
+MODEL_PATH = "multi_01.pth"
+
+UPDATE_TARGET_STEPS = 200
+BATCH_SIZE = 256
+GAMMA = 0.99
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 100000
+TAU = 0.005
+LR = 1e-4
 
 
 class DeepFlowNetwork(nn.Module):
     def __init__(self, n_inputs, n_outputs):
         super(DeepFlowNetwork, self).__init__()
-        self.protocol_embedding = nn.Embedding(256, 8)
+        self.protocol_embedding = nn.Embedding(256, PROTOCOL_DIM)
         self.port_embedding = nn.Embedding(65536, PORT_DIM)
-        n_inputs = n_inputs + 6 + PORT_DIM
+        n_inputs = n_inputs - 2 + PORT_DIM + PROTOCOL_DIM # - 2 + protocol + port
         self.fc1 = nn.Linear(n_inputs, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, n_outputs)
@@ -345,16 +355,6 @@ class DeepFlowNetwork(nn.Module):
         renew = F.relu(self.fc2(renew))
         return self.fc3(renew)
 
-MODEL_PATH = "multi_01.pth"
-
-UPDATE_TARGET_STEPS = 200
-BATCH_SIZE = 256
-GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 100000
-TAU = 0.005
-LR = 1e-4
 
 torch.backends.cudnn.benchmark = True  # ネットワーク構造が固定なら高速化
 
