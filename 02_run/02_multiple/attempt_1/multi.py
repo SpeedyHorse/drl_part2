@@ -37,7 +37,7 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "data_cicids2017/3_final/cicids2017_formated_scaled.csv"
+TRAIN_PATH = "data_cicids2017/3_final/cicids2017_fs_minmax_over_one.csv"
 # TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
 
 train_df = pd.read_csv(TRAIN_PATH)
@@ -369,7 +369,7 @@ def get_reward(action, answer):
     else:
         return -1
 
-num_episodes = 1_000
+num_episodes = 600
 n_actions = train_env.action_space.n
 n_inputs = train_env.observation_space.shape[0]
 
@@ -524,7 +524,7 @@ def train_model(num_episodes=100):
     """
     強化学習の訓練ループ本体
     """
-    period = num_episodes // 10
+    period = num_episodes // 2
     for i_episode in range(num_episodes):
         print(f"episode: {i_episode+1:3d}", end="")
         test = []
@@ -588,15 +588,16 @@ def train_model(num_episodes=100):
         # 5エピソードごとにモデル保存・可視化・テスト
         if i_episode % period == period - 1:
             plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
-            plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True)
             plot_macro_metrics(episode_macro_f1, episode_macro_precision, episode_macro_recall, is_save=True)
             torch.save(policy_net.state_dict(), MODEL_PATH)
             # plot_double_graph(episode_rewards, np.array(loss_array), is_save=True)
 
             test_model()
-            if i_episode % 100 == 99:
-                plot_graph(episode_rewards, show_result=True, is_save=True)
-                plot_normal_graph(loss_array, show_result=True, is_save=True)
+
+        if i_episode % 100 == 99:
+            plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True)
+            plot_graph(episode_rewards, show_result=True, is_save=True)
+            plot_normal_graph(loss_array, show_result=True, is_save=True)
 
         # 訓練終了後に指標履歴を保存
         history = {

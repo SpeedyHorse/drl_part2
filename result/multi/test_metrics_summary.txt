@@ -1,8 +1,8 @@
 Overall Metrics:
-Accuracy: 0.9479
-Macro Precision: 0.4258
-Macro Recall: 0.7420
-Macro F1-score: 0.4774
-Micro Precision: 0.9479
-Micro Recall: 0.9479
-Micro F1-score: 0.9479
+Accuracy: 0.9407
+Macro Precision: 0.4029
+Macro Recall: 0.6698
+Macro F1-score: 0.4521
+Micro Precision: 0.9407
+Micro Recall: 0.9407
+Micro F1-score: 0.9407
