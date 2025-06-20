@@ -185,3 +185,6 @@ test_confusion_matrix_*.png
 
 gen_model_*.pth
 disc_model_*.pth
+
+all_data.csv
+generated_data.csv

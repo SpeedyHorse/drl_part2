@@ -84,17 +84,13 @@ def get_type(column_label):
     elif column_type == np.float32:
         return 1
 
+skip_columns = ["Destination Port", "Protocol", "Label", "Attempted Category"]
+
 with open("min_max_value.csv", "w") as f:
     f.write("label,max,min,type,0:int,1:float\n")
     for column in df.columns:
-        if column == "Label" or column == "Attempted Category":
+        if column in skip_columns:
             continue
-        elif column == "Destination Port":
-            column_max = 65535
-            column_min = 0
-        elif column == "Protocol":
-            column_max = 255
-            column_min = 0
         else:
             column_max = df[column].max()
             column_min = df[column].min()
@@ -102,4 +98,4 @@ with open("min_max_value.csv", "w") as f:
         f.write(f"{column},{column_max},{column_min},{column_type}\n")
         df[column] = min_max_scale(df[column], column_max, column_min)
 
-df.to_csv("data_cicids2017/1_formated/cicids2017_formated_scaled.csv", index=False)
+df.to_csv("data_cicids2017/3_final/cicids2017_formated_scaled.csv", index=False)

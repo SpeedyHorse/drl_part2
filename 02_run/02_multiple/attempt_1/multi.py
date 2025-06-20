@@ -37,13 +37,14 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "result/gan/all_data.csv"
+TRAIN_PATH = "data_cicids2017/3_final/cicids2017_formated_scaled.csv"
 print("load train data")
 # TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
 print("load test data")
 
 train_df = pd.read_csv(TRAIN_PATH)
-test_df = pd.read_csv(TRAIN_PATH)
+# test_df = pd.read_csv(TRAIN_PATH)
+train_df, test_df = train_test_split(train_df, test_size=0.3, random_state=42)
 
 train_df = train_df.dropna(how="any").dropna(axis=1, how="any")
 test_df = test_df.dropna(how="any").dropna(axis=1, how="any")
@@ -523,6 +524,7 @@ def train_model(num_episodes=100):
     """
     強化学習の訓練ループ本体
     """
+    period = num_episodes // 10
     for i_episode in range(num_episodes):
         print(f"episode: {i_episode+1:3d}", end="")
         test = []
@@ -584,7 +586,7 @@ def train_model(num_episodes=100):
         f1_mean_list.append(f1_mean)
 
         # 5エピソードごとにモデル保存・可視化・テスト
-        if i_episode % 50 == 49:
+        if i_episode % period == period - 1:
             plot_confusion_matrix(confusion_matrix, is_save=True, name=f"train_confusion_matrix")
             plot_f1_stats(f1_max_list, f1_min_list, f1_mean_list, is_save=True)
             plot_macro_metrics(episode_macro_f1, episode_macro_precision, episode_macro_recall, is_save=True)
