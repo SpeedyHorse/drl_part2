@@ -37,7 +37,7 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "data_cicids2017/3_final/cicids2017_fs_minmax_over_one.csv"
+TRAIN_PATH = "data_cicids2017/3_final/cicids2017_fs_minmax_no_attempt.csv"
 # TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
 
 train_df = pd.read_csv(TRAIN_PATH)
