@@ -100,4 +100,8 @@ with open("min_max_value.csv", "w") as f:
         f.write(f"{column},{column_max},{column_min},{column_type}\n")
         df[column] = min_max_scale(df[column], column_max, column_min)
 
-df.to_csv("data_cicids2017/3_final/cicids2017_fs_minmax_no_attempt.csv", index=False)
+df.to_csv(
+    "data_cicids2017/3_final/cicids2017_fs_minmax_no_attempt.csv",
+    index=False,
+    chunksize=500_000
+)

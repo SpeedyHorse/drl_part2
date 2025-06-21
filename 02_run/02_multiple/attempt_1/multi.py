@@ -66,22 +66,22 @@ print(f"train_label_len: {train_label_len}, test_label_len: {test_label_len}")
 if train_label_len != test_label_len:
     raise ValueError("train_label_len != test_label_len")
 
-buf_df = pd.DataFrame()
-for label in train_df["Label"].unique():
-    df_label = train_df[train_df["Label"] == label]
-    if len(df_label) > 10_000:
-        # clip 10_000
-        buf_df = pd.concat([buf_df, df_label.sample(10_000)])
-    else:
-        buf_df = pd.concat([buf_df, df_label])
+# buf_df = pd.DataFrame()
+# for label in train_df["Label"].unique():
+#     df_label = train_df[train_df["Label"] == label]
+#     if len(df_label) > 10_000:
+#         # clip 10_000
+#         buf_df = pd.concat([buf_df, df_label.sample(10_000)])
+#     else:
+#         buf_df = pd.concat([buf_df, df_label])
 
-train_df = buf_df
+# train_df = buf_df
 
 print(train_df["Label"].value_counts())
 
 train_input = InputType(
     data=train_df,
-    sample_size=1_000,
+    sample_size=2_000,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
@@ -524,7 +524,7 @@ def train_model(num_episodes=100):
     """
     強化学習の訓練ループ本体
     """
-    period = num_episodes // 2
+    period = num_episodes // 1
     for i_episode in range(num_episodes):
         print(f"episode: {i_episode+1:3d}", end="")
         test = []
