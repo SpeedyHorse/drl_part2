@@ -1,9 +1,11 @@
 import os
+import sys
 import pandas as pd
 import numpy as np
 
 TRAIN_PATH = os.path.abspath("data_cicids2017/1_formated/cicids2017_formated.csv")
 df = pd.read_csv(TRAIN_PATH)
+print("load data done")
 
 def min_max_scale(series, max_value, min_value):
     return (series - min_value) / (max_value - min_value)
@@ -84,8 +86,14 @@ def get_type(column_label):
     elif column_type == np.float32:
         return 1
 
-skip_columns = ["Destination Port", "Protocol", "Label", "Attempted Category"]
+skip_columns = [
+    # "Destination Port",
+    # "Protocol",
+    "Label",
+    "Attempted Category",
+]
 
+print("start scaling")
 with open("min_max_value.csv", "w") as f:
     f.write("label,max,min,type,0:int,1:float\n")
     for column in df.columns:
@@ -98,4 +106,9 @@ with open("min_max_value.csv", "w") as f:
         f.write(f"{column},{column_max},{column_min},{column_type}\n")
         df[column] = min_max_scale(df[column], column_max, column_min)
 
-df.to_csv("data_cicids2017/3_final/cicids2017_formated_scaled.csv", index=False)
+print("save data")
+df.to_csv(
+    "data_cicids2017/3_final/cicids2017_formated_scaled.csv",
+    index=False,
+    chunksize=500_000
+)
