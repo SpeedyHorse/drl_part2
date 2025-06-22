@@ -37,23 +37,28 @@ print("start")
 CONST = f_p.Const()
 
 print("load data")
-TRAIN_PATH = "data_cicids2017/3_final/cicids2017_fs_minmax_no_attempt.csv"
+TRAIN_PATH = "data_cicids2017/3_final/cicids2017_scaled_after_gan.csv"
 # TEST_PATH = "data_cicids2017/2_sampling/cicids2017_sampled_test.csv"
 
 train_df = pd.read_csv(TRAIN_PATH)
-# test_df = pd.read_csv(TRAIN_PATH)
-train_df, test_df = train_test_split(train_df, test_size=0.3, random_state=42)
+tmp = train_df[train_df["Attempted Category"] == -1]
+_, test_df = train_test_split(tmp, test_size=0.3, random_state=42)
+
+train_df = train_df.drop(test_df.index).reset_index(drop=True)
+test_df = test_df.reset_index(drop=True)
 
 train_df = train_df.dropna(how="any").dropna(axis=1, how="any")
 test_df = test_df.dropna(how="any").dropna(axis=1, how="any")
-
-train_df = train_df[train_df["Attempted Category"] < 0]
-test_df = test_df[test_df["Attempted Category"] == -1]
 
 df = pd.concat([train_df, test_df])
 
 labels = df["Label"].value_counts().index.tolist()
 df["Label"] = df["Label"].map(lambda x: labels.index(x))
+
+with open("label_list.txt", "w") as f:
+    f.write(f"{len(labels)}\n")
+    for label in labels:
+        f.write(f"{label}\n")
 
 train_df = df.iloc[:int(len(train_df))]
 test_df = df.iloc[int(len(train_df)):]
@@ -81,7 +86,7 @@ print(train_df["Label"].value_counts())
 
 train_input = InputType(
     data=train_df,
-    sample_size=2_000,
+    sample_size=10_000,
     normalize_exclude_columns=["Protocol", "Destination Port"],
     exclude_columns=["Attempted Category"]
 )
@@ -104,7 +109,7 @@ if is_ipython:
 device_name = "cpu"
 if True:
     if torch.cuda.is_available():
-        device_name = "cuda:1"
+        device_name = "cuda:0"
     elif torch.mps.is_available():
         device_name = "mps"
     elif torch.mtia.is_available():
@@ -576,7 +581,7 @@ def train_model(num_episodes=100):
         f1_min = f1_per_class.min()
         f1_mean = f1_per_class.mean()
 
-        print(f", macro_precision: {macro_precision:.3f}, F1(max): {f1_max:.3f}, F1(min): {f1_min:.3f}, F1(mean): {f1_mean:.3f}")
+        print(f", macro_precision: {macro_precision:.3f}, F1(max): {f1_max:.3f}, F1(mean): {f1_mean:.3f}, F1(min): {f1_min:.3f}")
 
         episode_macro_precision.append(macro_precision)
         episode_macro_recall.append(macro_recall)

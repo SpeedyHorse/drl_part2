@@ -1,0 +1,17 @@
+16
+BENIGN
+FTP-Patator
+SSH-Patator
+Web Attack - Brute Force
+Infiltration
+Infiltration - Portscan
+Web Attack - XSS
+Web Attack - SQL Injection
+Botnet
+Portscan
+DDoS
+DoS Slowloris
+DoS Slowhttptest
+DoS Hulk
+DoS GoldenEye
+Heartbleed

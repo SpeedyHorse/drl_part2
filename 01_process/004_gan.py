@@ -155,7 +155,15 @@ def train_gan(df):
     d_losses = []
     g_losses = []
 
-    for epoch in range(NUM_EPOCHS):
+    if len(dataloader) < 10:
+        total_epochs = 100
+    elif len(dataloader) < 1000:
+        total_epochs = 20
+    else:
+        total_epochs = 5
+
+
+    for epoch in range(total_epochs):
         start_time = time.time()
         for i, real_data in enumerate(dataloader):
             real_data = real_data.to(device)
@@ -198,21 +206,51 @@ def train_gan(df):
 
             if (i + 1) % 1_000 == 0:
                 time_elapsed = time.time() - start_time
-                print(f"Step {i + 1:10d} / {len(dataloader):10d} | Time elapsed: {time_elapsed:.2f}s")
+                print(f"\rEpoch {epoch + 1:7d} / {total_epochs:7d} | Step {i + 1:10d} / {len(dataloader):10d} | Time elapsed: {time_elapsed:.2f}s", end="")
                 # print(f"\rEpoch {epoch + 1:10d} / {NUM_EPOCHS:10d} | Step {i + 1:10d} / {len(dataloader):10d} | D Loss: {d_loss.item():.4f} | G Loss: {g_loss.item():.4f}", end="")
 
         end_time = time.time()
-        print(f"\rEpoch {epoch + 1:10d} / {NUM_EPOCHS:10d} | Time: {end_time - start_time:.2f}s")
+        print("\r" + " " * 100, end="")
+        print(f"\rEpoch {epoch + 1:7d} / {total_epochs:7d} | Time: {end_time - start_time:.2f}s")
 
         if (epoch + 1) % 10_000 == 0:
-            title = f"Epoch {epoch + 1:10d} / {NUM_EPOCHS:10d}"
+            title = f"Epoch {epoch + 1:7d} / {total_epochs:7d}"
             plot_losses(d_losses, g_losses, title)
-            print(f"\rEpoch {epoch + 1:10d} / {NUM_EPOCHS:10d} | D Loss: {d_loss.item():.4f} | G Loss: {g_loss.item():.4f}")
+            print(f"\rEpoch {epoch + 1:7d} / {total_epochs:7d} | D Loss: {d_loss.item():.4f} | G Loss: {g_loss.item():.4f}")
     
     label = label_list[0]
     torch.save(gen_model.state_dict(), f"result/gan/gen/gen_model_{label}.pth")
     torch.save(disc_model.state_dict(), f"result/gan/disc/disc_model_{label}.pth")
 
+
+def load_state_dict(label, device):
+    from collections import OrderedDict
+    state_dict = torch.load(f"result/gan/gen/gen_model_{label}.pth", map_location=device)
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith("_orig_mod."):
+            name = k[len("_orig_mod."):]
+            new_state_dict[name] = v
+        else:
+            new_state_dict[k] = v
+    return new_state_dict
+
+
+def convert_to_data(df):
+    column_data = pd.read_csv("min_max_value.csv")
+    df["Protocol"] = df["Protocol"].apply(lambda x: int(x * 17))
+    df["Destination Port"] = df["Destination Port"].apply(lambda x: int(x * 65535))
+
+    for row in column_data.itertuples():
+        label = row.label
+        max_value = row.max
+        min_value = row.min
+        type = row.type
+        if type == 0:
+            df[label] = df[label].apply(lambda x: int(x * (max_value - min_value) + min_value))
+        else:
+            df[label] = df[label].apply(lambda x: float(x * (max_value - min_value) + min_value))
+    return df
 
 def generate_data(df, max_size=10_000):
     columns = df.columns.tolist()
@@ -226,9 +264,9 @@ def generate_data(df, max_size=10_000):
     data_column_size = len(feature_cols)
 
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    gen_model = Generator(Z_DIM, data_column_size, HIDDEN_SIZE)
-    gen_model.load_state_dict(torch.load(f"result/gan/gen/gen_model_{label}.pth"))
-    gen_model.to(device)
+    gen_model = Generator(Z_DIM, data_column_size, HIDDEN_SIZE).to(device)
+    state_dict = load_state_dict(label, device)
+    gen_model.load_state_dict(state_dict)
     
     if len(df) < max_size:
         z = torch.randn(max_size - len(df), Z_DIM, device=device)
@@ -238,6 +276,7 @@ def generate_data(df, max_size=10_000):
         fake_data = gen_model(z)
 
     df = pd.DataFrame(fake_data.detach().cpu().numpy(), columns=feature_cols)
+    df = convert_to_data(df)
     df["Label"] = label
     df["Attempted Category"] = -2
     return df
@@ -259,8 +298,8 @@ if __name__ == "__main__":
     df = pd.read_csv(TRAIN_PATH)
     print("load data done")
 
+    label_list = df["Label"].unique().tolist()
     if is_train:
-        label_list = df["Label"].unique().tolist()
         for label in label_list:
             print(f"start train {label}")
             df_label = df[df["Label"] == label]
@@ -269,10 +308,15 @@ if __name__ == "__main__":
     
     if is_generate:
         print("start generate")
-        df = generate_data(df, max_size=100_000)
-        print(df.head(2))
+        generated_df = pd.DataFrame()
+        for label in label_list:
+            print(f"start generate {label}")
+            df_label = df[df["Label"] == label]
+            generated_df = pd.concat([generated_df, generate_data(df_label, max_size=100_000)]) if generated_df is not None else generate_data(df_label, max_size=100_000)
+            print(f"finish generate {label}")
+        print(generated_df.head(2))
         print("-" * 100)
-        df.to_csv(
+        generated_df.to_csv(
             "data_cicids2017/3_final/cicids2017_generated_gan.csv",
             index=False,
             chunksize=10_000,
