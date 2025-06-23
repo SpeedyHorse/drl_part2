@@ -72,8 +72,16 @@ rename_dict = {
 
 df = df.rename(columns=rename_dict)
 
+df, test_df = train_test_split(df, test_size=0.5, random_state=42)
+
 df.to_csv(
     "data_cicids2017/1_formated/cicids2017_formated.csv", 
+    index=False,
+    chunksize=500_000
+)
+
+test_df.to_csv(
+    "data_cicids2017/1_formated/cicids2017_formated_test.csv", 
     index=False,
     chunksize=500_000
 )
@@ -81,7 +89,6 @@ df.to_csv(
 print("end")
 exit()
 
-df, test_df = train_test_split(df, test_size=0.5, random_state=42)
 
 # --- 2) アンダー+オーバーサンプリング ---
 label_counts = df["Label"].value_counts()
