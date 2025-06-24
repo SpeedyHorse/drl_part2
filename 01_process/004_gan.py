@@ -13,7 +13,7 @@ import time
 Z_DIM = 100
 NUM_EPOCHS = 10_000
 HIDDEN_SIZE = 100
-LEARNING_RATE = 0.0002
+LEARNING_RATE = 1e-7
 BATCH_SIZE = 16
 
 
@@ -83,8 +83,8 @@ def convert_to_data(df):
     return df
 
 
-def train_step(gen_model, disc_model, real_data, device):
-    z = torch.randn(BATCH_SIZE, Z_DIM, device=device)
+def train_step(gen_model, disc_model, real_data):
+    z = torch.randn(BATCH_SIZE, Z_DIM)
 
     fake_data = gen_model(z)
     fake_output = disc_model(fake_data)
@@ -92,24 +92,24 @@ def train_step(gen_model, disc_model, real_data, device):
 
     d_loss_fake = F.binary_cross_entropy(
         fake_output, 
-        torch.zeros_like(fake_output, device=device),
+        torch.zeros_like(fake_output),
     )
     d_loss_real = F.binary_cross_entropy(
         real_output, 
-        torch.ones_like(real_output, device=device),
+        torch.ones_like(real_output),
     )
     d_loss = d_loss_real + d_loss_fake
 
     g_loss = F.binary_cross_entropy(
         fake_output, 
-        torch.ones_like(fake_output, device=device),
+        torch.ones_like(fake_output),
     )
 
     return d_loss, g_loss
 
 
 def train_gan(df):
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     device = torch.device("cpu")
 
     columns = df.columns.tolist()
@@ -137,8 +137,8 @@ def train_gan(df):
     gen_hidden_size = disc_hidden_size = HIDDEN_SIZE
     gen_lr = disc_lr = LEARNING_RATE
 
-    gen_model = Generator(Z_DIM, data_column_size, gen_hidden_size).to(device)
-    disc_model = Discriminator(data_column_size, disc_hidden_size).to(device)
+    gen_model = Generator(Z_DIM, data_column_size, gen_hidden_size)
+    disc_model = Discriminator(data_column_size, disc_hidden_size)
 
     # PyTorch 2.0+ であれば torch.compile でモデルを高速化
     if hasattr(torch, "compile"):
@@ -166,7 +166,6 @@ def train_gan(df):
     for epoch in range(total_epochs):
         start_time = time.time()
         for i, real_data in enumerate(dataloader):
-            real_data = real_data.to(device)
             current_batch_size = real_data.size(0)
 
             # ---------------------
@@ -174,7 +173,7 @@ def train_gan(df):
             # ---------------------
             disc_optimizer.zero_grad()
             
-            z = torch.randn(current_batch_size, Z_DIM, device=device)
+            z = torch.randn(current_batch_size, Z_DIM)
             fake_data = gen_model(z)
 
             # 本物データに対する損失
@@ -263,7 +262,8 @@ def generate_data(df, max_size=10_000):
 
     data_column_size = len(feature_cols)
 
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     gen_model = Generator(Z_DIM, data_column_size, HIDDEN_SIZE).to(device)
     state_dict = load_state_dict(label, device)
     gen_model.load_state_dict(state_dict)

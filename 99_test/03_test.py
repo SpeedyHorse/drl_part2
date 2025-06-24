@@ -1,14 +1,17 @@
 import pandas as pd
+from glob import glob
 
-origin_df = pd.read_csv("data_cicids2017/1_formated/cicids2017_formated.csv")
-generated_df = pd.read_csv("data_cicids2017/3_final/cicids2017_generated_gan.csv")
+DIR_PATH = "data_cicids2017/0_raw"
+files = glob(f"{DIR_PATH}/*.csv")
 
-origin_df = origin_df[origin_df["Attempted Category"] == -1]
-label_list = origin_df["Label"].unique().tolist()
-generated_df = generated_df[generated_df["Label"].isin(label_list)]
+df = pd.DataFrame()
+for file in files:
+    df = pd.concat([df, pd.read_csv(file)])
 
-origin_label_count = origin_df["Label"].value_counts()
-generated_label_count = generated_df["Label"].value_counts()
+print(df["Label"].value_counts())
 
-for label in origin_label_count.index:
-    print(f"{label}: {origin_label_count[label]} + {generated_label_count[label]} = {origin_label_count[label] + generated_label_count[label]}")
+print("-"*100)
+
+df = pd.read_csv("data_cicids2017/3_final/cicids2017_formated_scaled.csv")
+
+print(df["Label"].value_counts())
