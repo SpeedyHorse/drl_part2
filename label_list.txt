@@ -1,17 +1,17 @@
 16
 BENIGN
+Portscan
+DoS Hulk
+DDoS
+Infiltration - Portscan
+DoS GoldenEye
 FTP-Patator
+DoS Slowloris
 SSH-Patator
+DoS Slowhttptest
+Botnet
 Web Attack - Brute Force
 Infiltration
-Infiltration - Portscan
+Heartbleed
 Web Attack - XSS
 Web Attack - SQL Injection
-Botnet
-Portscan
-DDoS
-DoS Slowloris
-DoS Slowhttptest
-DoS Hulk
-DoS GoldenEye
-Heartbleed
